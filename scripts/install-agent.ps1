@@ -26,10 +26,51 @@ if ($Server -match '^http://') {
 
 $ErrorActionPreference = "Stop"
 $ServiceName = "DTSYSAgent"
+$nssmExe = Join-Path $InstallDir "nssm.exe"
 
 $principal = New-Object Security.Principal.WindowsPrincipal([Security.Principal.WindowsIdentity]::GetCurrent())
 if (-not $principal.IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator)) {
     throw "Run this script from an elevated PowerShell session."
+}
+
+function Install-WithNssm {
+    param([string]$ExePath, [string]$ConfigPath)
+
+    if (Get-Command nssm.exe -ErrorAction SilentlyContinue) {
+        $script:nssmExe = (Get-Command nssm.exe).Source
+    }
+
+    if (-not (Test-Path $script:nssmExe)) {
+        if (Get-Command choco.exe -ErrorAction SilentlyContinue) {
+            choco install nssm -y --no-progress
+            if (Get-Command nssm.exe -ErrorAction SilentlyContinue) {
+                $script:nssmExe = (Get-Command nssm.exe).Source
+            }
+        }
+    }
+
+    if (-not (Test-Path $script:nssmExe)) {
+        $zipPath = Join-Path $env:TEMP "nssm.zip"
+        $extractDir = Join-Path $env:TEMP "nssm"
+        Invoke-WebRequest -Uri "https://nssm.cc/release/nssm-2.24.zip" -OutFile $zipPath
+        if (Test-Path $extractDir) {
+            Remove-Item -Path $extractDir -Recurse -Force
+        }
+        Expand-Archive -Path $zipPath -DestinationPath $extractDir -Force
+        Copy-Item -Path (Join-Path $extractDir "nssm-2.24\win64\nssm.exe") -Destination $script:nssmExe -Force
+    }
+
+    $installDir = Split-Path $ExePath -Parent
+    $wrapperPath = Join-Path $installDir "run-agent.cmd"
+    $wrapperContent = "@echo off`r`n`"$ExePath`" --config `"$ConfigPath`"`r`n"
+    Set-Content -Path $wrapperPath -Value $wrapperContent -Encoding ASCII
+
+    & $script:nssmExe install $ServiceName $wrapperPath
+    & $script:nssmExe set $ServiceName AppDirectory $installDir
+    & $script:nssmExe set $ServiceName Start SERVICE_AUTO_START
+    & $script:nssmExe set $ServiceName AppStdout (Join-Path $installDir "agent.log")
+    & $script:nssmExe set $ServiceName AppStderr (Join-Path $installDir "agent.err.log")
+    & $script:nssmExe set $ServiceName AppExit Default Restart
 }
 
 New-Item -ItemType Directory -Path $InstallDir -Force | Out-Null
@@ -83,10 +124,10 @@ $configPath = Join-Path $InstallDir "agent.toml"
 $configContent = @"
 [server]
 url = "$Server"
-device_id = "$($response.device_id)"
-api_key = "$($response.api_key)"
 
 [agent]
+device_id = "$($response.device_id)"
+api_key = "$($response.api_key)"
 
 [collect]
 telemetry_interval_secs = 60
@@ -114,11 +155,10 @@ if (Get-Service -Name $ServiceName -ErrorAction SilentlyContinue) {
     Start-Sleep -Seconds 2
 }
 
-New-Service -Name $ServiceName -BinaryPathName "`"$agentExe`" --config `"$configPath`"" -DisplayName "DTSYS Device Management Agent" -StartupType Automatic
+Install-WithNssm -ExePath $agentExe -ConfigPath $configPath
 
 sc.exe failure $ServiceName reset= 86400 actions= restart/10000/restart/10000/restart/10000 | Out-Null
 Set-Service -Name $ServiceName -StartupType Automatic
-sc.exe config $ServiceName start= delayed-auto | Out-Null
 
 Start-Service -Name $ServiceName
 

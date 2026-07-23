@@ -73,8 +73,8 @@ async def device_websocket(
     # Skip rate limiting for loopback — agents on the same host legitimately reconnect
     # frequently (e.g. during restarts / updates). Real abuse from localhost is impossible.
     _is_loopback = client_ip in ("127.0.0.1", "::1", "localhost")
+    attempts_key = f"ws_attempts:{client_ip}"
     if not _is_loopback:
-        attempts_key = f"ws_attempts:{client_ip}"
         attempts = await redis.incr(attempts_key)
         if attempts == 1:
             await redis.expire(attempts_key, 60)

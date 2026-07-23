@@ -149,39 +149,40 @@ func (c *Client) readLoop(ctx context.Context) {
 		return
 	}
 
-	// Keepalive settings.
+	// Keepalive settings. gorilla/websocket does not support retrying a read
+	// after any error (including a deadline timeout) on the same connection —
+	// doing so panics with "repeated read on failed websocket connection".
+	// So pongWait is the only read deadline, and ctx cancellation is handled
+	// by closing the connection from another goroutine to unblock ReadJSON,
+	// rather than polling with a short deadline and retrying on timeout.
 	const pongWait = 60 * time.Second
-	// readPoll is how often ReadJSON wakes up to check ctx even when idle.
-	const readPoll = 2 * time.Second
 	conn.SetPongHandler(func(string) error {
 		conn.SetReadDeadline(time.Now().Add(pongWait))
 		return nil
 	})
-	conn.SetReadDeadline(time.Now().Add(readPoll))
+	conn.SetReadDeadline(time.Now().Add(pongWait))
+
+	stopWatcher := make(chan struct{})
+	defer close(stopWatcher)
+	go func() {
+		select {
+		case <-ctx.Done():
+			conn.Close()
+		case <-stopWatcher:
+		}
+	}()
 
 	for {
-		// Check for shutdown before blocking on the network.
-		if ctx.Err() != nil {
-			conn.WriteMessage(websocket.CloseMessage,
-				websocket.FormatCloseMessage(websocket.CloseNormalClosure, ""))
-			return
-		}
-
 		var raw map[string]json.RawMessage
 		err := conn.ReadJSON(&raw)
 		if err != nil {
-			// A deadline timeout just means "no message yet" — reset and retry.
-			if netErr, ok := err.(interface{ Timeout() bool }); ok && netErr.Timeout() {
-				conn.SetReadDeadline(time.Now().Add(readPoll))
-				continue
-			}
 			lastErr = err
 			if !websocket.IsCloseError(err, websocket.CloseNormalClosure, websocket.CloseGoingAway) {
 				slog.Warn("websocket read error", "error", err)
 			}
 			return
 		}
-		conn.SetReadDeadline(time.Now().Add(readPoll))
+		conn.SetReadDeadline(time.Now().Add(pongWait))
 
 		var msgType string
 		if t, ok := raw["type"]; ok {

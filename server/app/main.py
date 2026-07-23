@@ -63,11 +63,13 @@ async def lifespan(app: FastAPI):
 async def _seed_admin():
     from app.core.security import hash_password
     from app.models.user import User
+    from app.models.organization import Organization, OrganizationMember
     from sqlalchemy.exc import IntegrityError
 
     async with AsyncSessionLocal() as db:
         result = await db.execute(select(User).where(User.username == "admin"))
-        if not result.scalar_one_or_none():
+        user = result.scalar_one_or_none()
+        if not user:
             user = User(
                 username="admin",
                 password_hash=hash_password(settings.FIRST_ADMIN_PASSWORD),
@@ -78,6 +80,29 @@ async def _seed_admin():
                 await db.commit()
             except IntegrityError:
                 await db.rollback()
+                return
+
+        if user.active_org_id is None:
+            org_result = await db.execute(select(Organization).where(Organization.slug == "default"))
+            org = org_result.scalar_one_or_none()
+            if org is None:
+                org = Organization(name="Default", slug="default", owner_id=user.id)
+                db.add(org)
+                await db.flush()
+            elif org.owner_id is None:
+                org.owner_id = user.id
+
+            member_result = await db.execute(
+                select(OrganizationMember).where(
+                    OrganizationMember.org_id == org.id,
+                    OrganizationMember.user_id == user.id,
+                )
+            )
+            if member_result.scalar_one_or_none() is None:
+                db.add(OrganizationMember(org_id=org.id, user_id=user.id, role="owner"))
+
+            user.active_org_id = org.id
+            await db.commit()
 
 
 app = FastAPI(
