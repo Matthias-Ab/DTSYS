@@ -101,12 +101,27 @@ fi
 
 BIN_URL="${SERVER_URL}/api/v1/agent/download?arch=${ARCH}&platform=${PLATFORM}"
 INSTALL_DIR="/usr/local/bin"
+if [ "$PLATFORM" = "linux" ]; then
+  # A dedicated, dtsys-owned directory (rather than the root-owned
+  # /usr/local/bin) so the unprivileged dtsys-agent service user can
+  # replace its own binary in place when auto_update runs.
+  INSTALL_DIR="/opt/dtsys"
+fi
 BIN_PATH="${INSTALL_DIR}/dtsys-agent"
 if [ "$PLATFORM" = "windows" ]; then
   BIN_PATH="${INSTALL_DIR}/dtsys-agent.exe"
 fi
 
+if [ "$PLATFORM" = "linux" ]; then
+  if ! id -u dtsys-agent >/dev/null 2>&1; then
+    useradd --system --no-create-home --shell /usr/sbin/nologin dtsys-agent
+  fi
+fi
+
 mkdir -p "$INSTALL_DIR"
+if [ "$PLATFORM" = "linux" ]; then
+  chown dtsys-agent:dtsys-agent "$INSTALL_DIR"
+fi
 
 VERSION_RESPONSE="$(curl -fsS "${SERVER_URL}/api/v1/agent/version?arch=${ARCH}&platform=${PLATFORM}")"
 EXPECTED_SHA256="$(printf '%s' "$VERSION_RESPONSE" | python3 -c 'import json,sys; print((json.loads(sys.stdin.read()).get("sha256") or "").lower())')"
@@ -171,10 +186,10 @@ mkdir -p "$CONFIG_DIR"
 cat > "$CONFIG_PATH" <<EOF
 [server]
 url = "${SERVER_URL}"
-device_id = "${DEVICE_ID}"
-api_key = "${API_KEY}"
 
 [agent]
+device_id = "${DEVICE_ID}"
+api_key = "${API_KEY}"
 
 [collect]
 telemetry_interval_secs = 60
@@ -197,9 +212,6 @@ EOF
 chmod 600 "$CONFIG_PATH"
 
 if [ "$PLATFORM" = "linux" ]; then
-  if ! id -u dtsys-agent >/dev/null 2>&1; then
-    useradd --system --no-create-home --shell /usr/sbin/nologin dtsys-agent
-  fi
   chown dtsys-agent:dtsys-agent "$CONFIG_PATH"
   SERVICE_PATH="/etc/systemd/system/dtsys-agent.service"
   cat > "$SERVICE_PATH" <<EOF
@@ -212,7 +224,7 @@ StartLimitIntervalSec=0
 
 [Service]
 Type=simple
-ExecStart=/usr/local/bin/dtsys-agent --config /etc/dtsys/agent.toml
+ExecStart=${BIN_PATH} --config /etc/dtsys/agent.toml
 Restart=always
 RestartSec=10
 RestartPreventExitStatus=
