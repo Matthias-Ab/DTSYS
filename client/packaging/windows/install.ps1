@@ -14,7 +14,7 @@ $agentExe = Join-Path $InstallDir "dtsys-agent.exe"
 $configPath = Join-Path $InstallDir "agent.toml"
 $wrapperPath = Join-Path $InstallDir "run-agent.cmd"
 $nssmExe = Join-Path $InstallDir "nssm.exe"
-$agentUrl = ($ServerURL.TrimEnd('/')) + "/downloads/dtsys-agent-windows.exe"
+$agentUrl = ($ServerURL.TrimEnd('/')) + "/api/v1/downloads/dtsys-agent-windows.exe"
 
 $principal = New-Object Security.Principal.WindowsPrincipal([Security.Principal.WindowsIdentity]::GetCurrent())
 if (-not $principal.IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator)) {

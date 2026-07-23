@@ -8,12 +8,13 @@ import (
 )
 
 type Config struct {
-	Server  ServerConfig  `toml:"server"`
-	Agent   AgentConfig   `toml:"agent"`
-	Collect CollectConfig `toml:"collect"`
-	Events  EventsConfig  `toml:"events"`
-	TLS     TLSConfig     `toml:"tls"`
-	Update  UpdateConfig  `toml:"update"`
+	Server   ServerConfig   `toml:"server"`
+	Agent    AgentConfig    `toml:"agent"`
+	Collect  CollectConfig  `toml:"collect"`
+	Events   EventsConfig   `toml:"events"`
+	TLS      TLSConfig      `toml:"tls"`
+	Update   UpdateConfig   `toml:"update"`
+	Executor ExecutorConfig `toml:"executor"`
 }
 
 type ServerConfig struct {
@@ -40,12 +41,16 @@ type EventsConfig struct {
 }
 
 type TLSConfig struct {
-	SkipTimeCheck bool `toml:"skip_time_check"` // default true
+	SkipTimeCheck bool `toml:"skip_time_check"` // default false; enable only for devices with unreliable clocks
 }
 
 type UpdateConfig struct {
-	AutoUpdate         bool `toml:"auto_update"`            // default true
-	CheckIntervalHours int  `toml:"check_interval_hours"`   // default 6
+	AutoUpdate         bool `toml:"auto_update"`          // default true
+	CheckIntervalHours int  `toml:"check_interval_hours"` // default 6
+}
+
+type ExecutorConfig struct {
+	DisableShell bool `toml:"disable_shell"` // default false; set true to refuse "shell"/"script" commands locally
 }
 
 func Load(path string) (*Config, error) {
@@ -62,7 +67,7 @@ func Load(path string) (*Config, error) {
 			RateLimitWindowS: 30,
 		},
 		TLS: TLSConfig{
-			SkipTimeCheck: true,
+			SkipTimeCheck: false,
 		},
 		Update: UpdateConfig{
 			AutoUpdate:         true,

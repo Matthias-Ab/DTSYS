@@ -10,6 +10,7 @@ from app.models.user import User
 from app.models.command import Command
 from app.models.device import Device
 from app.dependencies import get_current_user, get_current_org_id
+from app.core.exceptions import ForbiddenError
 from app.services.audit_service import log_action
 from app.services.command_service import CommandService
 from app.core.logging import get_logger
@@ -18,6 +19,11 @@ from app.core.rate_limit import limiter
 
 router = APIRouter(prefix="/devices/{device_id}/commands", tags=["commands"])
 log = get_logger(__name__)
+
+# Command types that execute arbitrary code on the device — restricted to org admins
+# and fully captured in the audit log so a compromised non-admin account can't be used
+# to run ad-hoc shell commands across the fleet.
+HIGH_RISK_COMMAND_TYPES = {"shell", "script"}
 
 
 class CommandRequest(BaseModel):
@@ -43,6 +49,11 @@ async def dispatch_command(
     current_org_id: Annotated[uuid.UUID, Depends(get_current_org_id)],
     db: Annotated[AsyncSession, Depends(get_db)],
 ):
+    if body.command_type in HIGH_RISK_COMMAND_TYPES and current_user.role != "admin":
+        raise ForbiddenError(
+            f"'{body.command_type}' commands can only be dispatched by an org admin"
+        )
+
     device = await _get_device_for_org(db, device_id, current_org_id)
     service = CommandService(db)
     cmd, sent = await service.dispatch_command(
@@ -61,13 +72,18 @@ async def dispatch_command(
         connected=manager.is_connected(device.id),
         sent=sent,
     )
+    audit_details = {"command_type": body.command_type}
+    if body.command_type in HIGH_RISK_COMMAND_TYPES:
+        command_text = body.payload.get("command") if isinstance(body.payload, dict) else None
+        if isinstance(command_text, str):
+            audit_details["command"] = command_text[:2000]
     await log_action(
         db,
         current_user,
         "command_dispatched",
         resource_type="device",
         resource_id=str(device_id),
-        details={"command_type": body.command_type},
+        details=audit_details,
     )
     await db.commit()
     return {

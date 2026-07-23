@@ -49,6 +49,7 @@ async def test_refresh_token(client, monkeypatch):
                 "00000000-0000-0000-0000-000000000001",
                 {"role": "admin", "org_id": "00000000-0000-0000-0000-000000000010"},
             ),
+            "refresh_token": create_refresh_token("00000000-0000-0000-0000-000000000001"),
             "token_type": "bearer",
         }
 

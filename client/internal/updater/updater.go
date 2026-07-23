@@ -2,7 +2,10 @@ package updater
 
 import (
 	"context"
+	"crypto/sha256"
+	"crypto/subtle"
 	"crypto/tls"
+	"encoding/hex"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -18,6 +21,7 @@ import (
 type versionResponse struct {
 	Version     string `json:"version"`
 	DownloadURL string `json:"download_url"`
+	SHA256      string `json:"sha256"`
 }
 
 // CheckAndUpdate downloads and stages a newer agent binary when one is available.
@@ -71,6 +75,11 @@ func CheckAndUpdate(ctx context.Context, serverURL, currentVersion, deviceID, ap
 		return false, nil
 	}
 
+	expectedSHA256 := strings.ToLower(strings.TrimSpace(payload.SHA256))
+	if len(expectedSHA256) != 64 {
+		return false, fmt.Errorf("server did not provide a valid sha256 checksum for the update; refusing to install an unverified binary")
+	}
+
 	downloadURL, err := resolveDownloadURL(endpoint, payload.DownloadURL)
 	if err != nil {
 		return false, err
@@ -92,7 +101,8 @@ func CheckAndUpdate(ctx context.Context, serverURL, currentVersion, deviceID, ap
 	}
 	tempPath := tempFile.Name()
 
-	if err := downloadBinary(ctx, downloadURL, apiKey, tempFile, client); err != nil {
+	actualSHA256, err := downloadBinary(ctx, downloadURL, apiKey, tempFile, client)
+	if err != nil {
 		tempFile.Close()
 		_ = os.Remove(tempPath)
 		return false, err
@@ -100,6 +110,10 @@ func CheckAndUpdate(ctx context.Context, serverURL, currentVersion, deviceID, ap
 	if err := tempFile.Close(); err != nil {
 		_ = os.Remove(tempPath)
 		return false, err
+	}
+	if subtle.ConstantTimeCompare([]byte(actualSHA256), []byte(expectedSHA256)) != 1 {
+		_ = os.Remove(tempPath)
+		return false, fmt.Errorf("downloaded update failed checksum verification: expected %s, got %s", expectedSHA256, actualSHA256)
 	}
 	if err := os.Chmod(tempPath, 0o755); err != nil && runtime.GOOS != "windows" {
 		_ = os.Remove(tempPath)
@@ -152,10 +166,13 @@ func resolveDownloadURL(baseURL, raw string) (string, error) {
 	return parsedBase.ResolveReference(parsedURL).String(), nil
 }
 
-func downloadBinary(ctx context.Context, downloadURL, apiKey string, file *os.File, client *http.Client) error {
+// downloadBinary streams the response body into file while hashing it, and
+// returns the hex-encoded sha256 digest of what was written so the caller can
+// verify it against the server-advertised checksum before trusting the binary.
+func downloadBinary(ctx context.Context, downloadURL, apiKey string, file *os.File, client *http.Client) (string, error) {
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, downloadURL, nil)
 	if err != nil {
-		return err
+		return "", err
 	}
 	if apiKey != "" {
 		req.Header.Set("Authorization", "Bearer "+apiKey)
@@ -163,15 +180,19 @@ func downloadBinary(ctx context.Context, downloadURL, apiKey string, file *os.Fi
 
 	resp, err := client.Do(req)
 	if err != nil {
-		return err
+		return "", err
 	}
 	defer resp.Body.Close()
 
 	if resp.StatusCode != http.StatusOK {
-		return fmt.Errorf("download failed with status %d", resp.StatusCode)
+		return "", fmt.Errorf("download failed with status %d", resp.StatusCode)
 	}
-	_, err = io.Copy(file, resp.Body)
-	return err
+
+	hasher := sha256.New()
+	if _, err := io.Copy(io.MultiWriter(file, hasher), resp.Body); err != nil {
+		return "", err
+	}
+	return hex.EncodeToString(hasher.Sum(nil)), nil
 }
 
 func isNewerVersion(remoteVersion, currentVersion string) (bool, error) {

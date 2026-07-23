@@ -27,7 +27,7 @@ esac
 echo ">>> Installing DTSYS agent ($ARCH_TAG)"
 
 # Download binary
-DOWNLOAD_URL="${SERVER_URL}/downloads/dtsys-agent-linux-${ARCH_TAG}"
+DOWNLOAD_URL="${SERVER_URL}/api/v1/downloads/dtsys-agent-linux-${ARCH_TAG}"
 curl -sSL -o /tmp/dtsys-agent "$DOWNLOAD_URL"
 chmod +x /tmp/dtsys-agent
 mv /tmp/dtsys-agent "$INSTALL_DIR/dtsys-agent"

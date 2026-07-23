@@ -1,6 +1,7 @@
 import { useState } from 'react'
 import {
   ActivityIndicator,
+  Alert,
   KeyboardAvoidingView,
   Platform,
   StyleSheet,
@@ -17,13 +18,29 @@ interface Props {
 
 export default function LoginScreen({ onLoginSuccess }: Props) {
   const { login, loading, error } = useAuth()
-  const [serverUrl, setServerUrl] = useState('http://192.168.1.100:8000')
+  const [serverUrl, setServerUrl] = useState('')
   const [username, setUsername] = useState('')
   const [password, setPassword] = useState('')
 
-  const handleLogin = async () => {
+  const doLogin = async () => {
     const ok = await login(serverUrl, username, password)
     if (ok) onLoginSuccess()
+  }
+
+  const handleLogin = () => {
+    const trimmed = serverUrl.trim()
+    if (!trimmed.startsWith('https://')) {
+      Alert.alert(
+        'Insecure connection',
+        'This server address does not use HTTPS. Your username and password would be sent unencrypted. Continue anyway?',
+        [
+          { text: 'Cancel', style: 'cancel' },
+          { text: 'Continue anyway', style: 'destructive', onPress: doLogin },
+        ]
+      )
+      return
+    }
+    doLogin()
   }
 
   return (
@@ -40,7 +57,7 @@ export default function LoginScreen({ onLoginSuccess }: Props) {
           autoCapitalize="none"
           autoCorrect={false}
           keyboardType="url"
-          placeholder="http://your-server:8000"
+          placeholder="https://your-dtsys-server.example.com"
           placeholderTextColor="#9ca3af"
         />
 

@@ -2,7 +2,8 @@
 set -euo pipefail
 
 usage() {
-  echo "Usage: curl -fsSL http://YOUR_SERVER/install-agent.sh | sudo bash -s -- --server http://YOUR_SERVER --token ENROLLMENT_TOKEN" >&2
+  echo "Usage: curl -fsSL https://YOUR_SERVER/install-agent.sh | sudo bash -s -- --server https://YOUR_SERVER --token ENROLLMENT_TOKEN" >&2
+  echo "       add --allow-insecure-http to permit a plain http:// server (dev/test only)" >&2
 }
 
 if [ "${1:-}" = "-h" ] || [ "${1:-}" = "--help" ]; then
@@ -12,6 +13,7 @@ fi
 
 SERVER_URL=""
 ENROLLMENT_TOKEN=""
+ALLOW_INSECURE_HTTP="false"
 
 while [ $# -gt 0 ]; do
   case "$1" in
@@ -22,6 +24,10 @@ while [ $# -gt 0 ]; do
     --token)
       ENROLLMENT_TOKEN="${2:-}"
       shift 2
+      ;;
+    --allow-insecure-http)
+      ALLOW_INSECURE_HTTP="true"
+      shift 1
       ;;
     *)
       echo "Unknown argument: $1" >&2
@@ -36,6 +42,23 @@ if [ -z "$SERVER_URL" ] || [ -z "$ENROLLMENT_TOKEN" ]; then
   usage
   exit 1
 fi
+
+case "$SERVER_URL" in
+  https://*)
+    ;;
+  http://*)
+    if [ "$ALLOW_INSECURE_HTTP" != "true" ]; then
+      echo "Error: --server must use https:// (the agent will otherwise send its enrollment token and API key in plaintext)." >&2
+      echo "       Pass --allow-insecure-http to override for local/dev testing only." >&2
+      exit 1
+    fi
+    echo "WARNING: installing over plaintext http:// — credentials will be sent unencrypted." >&2
+    ;;
+  *)
+    echo "Error: --server must start with https:// or http://" >&2
+    exit 1
+    ;;
+esac
 
 if [ "$(id -u)" -ne 0 ]; then
   echo "Error: run as root (use sudo)." >&2
@@ -84,8 +107,27 @@ if [ "$PLATFORM" = "windows" ]; then
 fi
 
 mkdir -p "$INSTALL_DIR"
+
+VERSION_RESPONSE="$(curl -fsS "${SERVER_URL}/api/v1/agent/version?arch=${ARCH}&platform=${PLATFORM}")"
+EXPECTED_SHA256="$(printf '%s' "$VERSION_RESPONSE" | python3 -c 'import json,sys; print((json.loads(sys.stdin.read()).get("sha256") or "").lower())')"
+
+if [ -z "$EXPECTED_SHA256" ] || [ "${#EXPECTED_SHA256}" -ne 64 ]; then
+  echo "Error: server did not provide a sha256 checksum for this build; refusing to install an unverified binary." >&2
+  exit 1
+fi
+
 echo "Downloading agent from ${BIN_URL}..."
-curl -fsSL "$BIN_URL" -o "$BIN_PATH"
+TMP_BIN="$(mktemp)"
+curl -fsSL "$BIN_URL" -o "$TMP_BIN"
+
+ACTUAL_SHA256="$(sha256sum "$TMP_BIN" | awk '{print $1}')"
+if [ "$ACTUAL_SHA256" != "$EXPECTED_SHA256" ]; then
+  rm -f "$TMP_BIN"
+  echo "Error: checksum mismatch — expected ${EXPECTED_SHA256}, got ${ACTUAL_SHA256}. Refusing to install." >&2
+  exit 1
+fi
+
+mv "$TMP_BIN" "$BIN_PATH"
 chmod +x "$BIN_PATH"
 
 HOSTNAME="$(hostname)"
@@ -146,7 +188,7 @@ rate_limit_max = 20
 rate_limit_window_s = 30
 
 [tls]
-skip_time_check = true
+skip_time_check = false
 
 [update]
 auto_update = true

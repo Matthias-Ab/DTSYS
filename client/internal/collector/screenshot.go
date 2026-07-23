@@ -13,10 +13,17 @@ import (
 	"os/exec"
 	"runtime"
 	"strings"
+	"time"
 )
 
 // CaptureScreenshot returns a JPEG screenshot of the primary display.
+// It best-effort notifies a logged-in user that a screenshot was taken by IT
+// management before capturing, so remote capture is never silent to whoever
+// is sitting at the device. Notification failures (headless box, no display
+// server, etc.) never block or fail the capture itself.
 func CaptureScreenshot(ctx context.Context) ([]byte, error) {
+	notifyScreenshotCaptured()
+
 	switch runtime.GOOS {
 	case "windows":
 		return captureWindowsScreenshot(ctx)
@@ -24,6 +31,29 @@ func CaptureScreenshot(ctx context.Context) ([]byte, error) {
 		return captureDarwinScreenshot(ctx)
 	default:
 		return captureLinuxScreenshot(ctx)
+	}
+}
+
+func notifyScreenshotCaptured() {
+	notifyCtx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
+	defer cancel()
+
+	const title = "DTSYS Device Management"
+	const message = "A screenshot of this screen was captured by your organization's IT management agent."
+
+	switch runtime.GOOS {
+	case "windows":
+		_ = exec.CommandContext(notifyCtx, "msg", "*", "/TIME:10", message).Run()
+	case "darwin":
+		script := fmt.Sprintf(`display notification %q with title %q`, message, title)
+		_ = exec.CommandContext(notifyCtx, "osascript", "-e", script).Run()
+	default:
+		if os.Getenv("DISPLAY") == "" {
+			return
+		}
+		if _, err := exec.LookPath("notify-send"); err == nil {
+			_ = exec.CommandContext(notifyCtx, "notify-send", "-u", "normal", title, message).Run()
+		}
 	}
 }
 

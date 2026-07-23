@@ -55,7 +55,7 @@ function GaugeBar({ value }: { value: number | null }) {
 export default function DashboardScreen() {
   const navigation = useNavigation<NativeStackNavigationProp<RootStackParamList>>()
 
-  const { data: devices = [], isLoading, refetch, isFetching } = useQuery<Device[]>({
+  const { data: devices = [], isLoading, isError, refetch, isFetching } = useQuery<Device[]>({
     queryKey: ['mobile-devices'],
     queryFn: () => api.get('/devices').then((r) => r.data),
     refetchInterval: 30000,
@@ -115,6 +115,17 @@ export default function DashboardScreen() {
     )
   }
 
+  if (isError) {
+    return (
+      <View style={styles.center}>
+        <Text style={styles.errorText}>Couldn't load devices. Check your connection and try again.</Text>
+        <TouchableOpacity style={styles.retryButton} onPress={() => refetch()}>
+          <Text style={styles.retryButtonText}>Retry</Text>
+        </TouchableOpacity>
+      </View>
+    )
+  }
+
   return (
     <FlatList
       data={devices}
@@ -135,6 +146,9 @@ const styles = StyleSheet.create({
   list: { padding: 16, gap: 12 },
   center: { flex: 1, alignItems: 'center', justifyContent: 'center', padding: 32 },
   emptyText: { color: '#94a3b8', fontSize: 15 },
+  errorText: { color: '#ef4444', fontSize: 14, textAlign: 'center', marginBottom: 14 },
+  retryButton: { backgroundColor: '#2563eb', borderRadius: 10, paddingHorizontal: 20, paddingVertical: 10 },
+  retryButtonText: { color: '#fff', fontWeight: '600', fontSize: 14 },
   card: {
     backgroundColor: '#fff',
     borderRadius: 14,

@@ -67,6 +67,41 @@ class Settings(BaseSettings):
     def is_production(self) -> bool:
         return self.ENVIRONMENT == "production"
 
+    def assert_production_safe(self) -> None:
+        """Refuse to boot with known-insecure defaults when ENVIRONMENT=production."""
+        if not self.is_production:
+            return
+
+        problems: list[str] = []
+
+        if self.SECRET_KEY == "dev-secret-key-change-in-production" or len(self.SECRET_KEY) < 32:
+            problems.append(
+                "SECRET_KEY is the default/placeholder value or shorter than 32 characters. "
+                "Generate one with: python3 -c \"import secrets; print(secrets.token_hex(32))\""
+            )
+
+        if self.FIRST_ADMIN_PASSWORD == "changeme":
+            problems.append(
+                "FIRST_ADMIN_PASSWORD is still the default 'changeme'. Set a strong password before first boot."
+            )
+
+        localhost_origins = [
+            origin
+            for origin in self.ALLOWED_ORIGINS
+            if "localhost" in origin or "127.0.0.1" in origin
+        ]
+        if localhost_origins:
+            problems.append(
+                f"ALLOWED_ORIGINS contains localhost/127.0.0.1 entries in production: {localhost_origins}. "
+                "Set it to the real frontend origin(s)."
+            )
+
+        if problems:
+            raise RuntimeError(
+                "Refusing to start with ENVIRONMENT=production due to insecure configuration:\n- "
+                + "\n- ".join(problems)
+            )
+
 
 @lru_cache
 def get_settings() -> Settings:

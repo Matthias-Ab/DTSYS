@@ -20,4 +20,12 @@ GOOS=windows GOARCH=amd64 go build -ldflags="${LDFLAGS}" -o ../dist/dtsys-agent-
 
 echo "$VERSION" > ../dist/version.txt
 
+# Checksums let the agent's self-updater and install scripts verify a downloaded
+# binary before executing/installing it, instead of trusting the transport alone.
+cd ../dist
+for bin in dtsys-agent-linux-amd64 dtsys-agent-linux-arm64 dtsys-agent-darwin-amd64 dtsys-agent-darwin-arm64 dtsys-agent-windows-amd64.exe; do
+  sha256sum "$bin" | awk '{print $1}' > "${bin}.sha256"
+done
+cd - >/dev/null
+
 echo "Built all agent binaries in dist/"

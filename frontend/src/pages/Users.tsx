@@ -5,6 +5,14 @@ import { formatDistanceToNow } from 'date-fns'
 import { adminApi } from '../api/admin'
 import { useAuthStore } from '../store/authStore'
 
+function extractErrorMessage(error: unknown, fallback: string): string {
+  if (error && typeof error === 'object' && 'response' in error) {
+    const detail = (error as { response?: { data?: { detail?: string } } }).response?.data?.detail
+    if (typeof detail === 'string') return detail
+  }
+  return fallback
+}
+
 export default function Users() {
   const queryClient = useQueryClient()
   const role = useAuthStore((state) => state.role)
@@ -12,6 +20,7 @@ export default function Users() {
   const [passwordTarget, setPasswordTarget] = useState<string | null>(null)
   const [passwordValue, setPasswordValue] = useState('')
   const [inviteForm, setInviteForm] = useState({ username: '', password: '', role: 'viewer' as 'admin' | 'viewer' })
+  const [actionError, setActionError] = useState<string | null>(null)
 
   const { data: users = [] } = useQuery({
     queryKey: ['admin-users'],
@@ -24,27 +33,39 @@ export default function Users() {
   const inviteUser = useMutation({
     mutationFn: () => adminApi.createUser(inviteForm),
     onSuccess: () => {
+      setActionError(null)
       setInviteOpen(false)
       setInviteForm({ username: '', password: '', role: 'viewer' })
       refreshUsers()
     },
+    onError: (error) => setActionError(extractErrorMessage(error, 'Could not create the user.')),
   })
   const updateUser = useMutation({
     mutationFn: ({ id, body }: { id: string; body: { role?: 'admin' | 'viewer'; is_active?: boolean } }) =>
       adminApi.updateUser(id, body),
-    onSuccess: refreshUsers,
+    onSuccess: () => {
+      setActionError(null)
+      refreshUsers()
+    },
+    onError: (error) => setActionError(extractErrorMessage(error, 'Could not update the user.')),
   })
   const resetPassword = useMutation({
     mutationFn: ({ id, password }: { id: string; password: string }) => adminApi.resetUserPassword(id, password),
     onSuccess: () => {
+      setActionError(null)
       setPasswordTarget(null)
       setPasswordValue('')
       refreshUsers()
     },
+    onError: (error) => setActionError(extractErrorMessage(error, 'Could not reset the password.')),
   })
   const deleteUser = useMutation({
     mutationFn: (id: string) => adminApi.deleteUser(id),
-    onSuccess: refreshUsers,
+    onSuccess: () => {
+      setActionError(null)
+      refreshUsers()
+    },
+    onError: (error) => setActionError(extractErrorMessage(error, 'Could not delete the user.')),
   })
 
   const currentUsername = useAuthStore((state) => state.username)
@@ -69,6 +90,15 @@ export default function Users() {
           Invite User
         </button>
       </div>
+
+      {actionError && (
+        <div className="flex items-center justify-between gap-3 rounded-lg border border-red-200 bg-red-50 px-4 py-2.5 text-sm text-red-700 dark:border-red-500/30 dark:bg-red-950/30 dark:text-red-300">
+          <span>{actionError}</span>
+          <button onClick={() => setActionError(null)} className="text-red-500 hover:text-red-700 dark:text-red-400 dark:hover:text-red-200">
+            Dismiss
+          </button>
+        </div>
+      )}
 
       <div className="overflow-x-auto rounded-xl border border-slate-200 bg-white dark:border-gray-800 dark:bg-gray-900">
         <table className="min-w-full text-sm">

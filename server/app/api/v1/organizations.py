@@ -4,7 +4,7 @@ import re
 import uuid
 from typing import Annotated
 
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Request, Response
 from pydantic import BaseModel, Field
 from sqlalchemy import select, func
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -15,6 +15,8 @@ from app.models.organization import Organization, OrganizationMember
 from app.models.user import User
 from app.models.device import Device
 from app.services.auth_service import AuthService
+from app.core.rate_limit import limiter
+from app.core.security import set_refresh_cookie
 
 router = APIRouter(prefix="/organizations", tags=["organizations"])
 
@@ -280,7 +282,10 @@ async def list_org_devices(
 
 
 @router.post("/{org_id}/switch")
+@limiter.limit("20/minute")
 async def switch_org(
+    request: Request,
+    response: Response,
     org_id: uuid.UUID,
     current_user: Annotated[User, Depends(get_current_user)],
     db: Annotated[AsyncSession, Depends(get_db)],
@@ -289,4 +294,5 @@ async def switch_org(
     current_user.active_org_id = org_id
     await db.commit()
     tokens = AuthService(db).issue_tokens(current_user)
+    set_refresh_cookie(response, tokens["refresh_token"])
     return tokens

@@ -118,7 +118,7 @@ export default function DeviceDetailScreen() {
   const [selectedCommandId, setSelectedCommandId] = useState<string | null>(null)
   const [showLibrary, setShowLibrary] = useState(false)
 
-  const { data: device, isLoading, refetch, isFetching } = useQuery({
+  const { data: device, isLoading, isError, refetch, isFetching } = useQuery({
     queryKey: ['mobile-device', deviceId],
     queryFn: () => api.get(`/devices/${deviceId}`).then((r) => r.data),
     refetchInterval: 30000,
@@ -149,6 +149,7 @@ export default function DeviceDetailScreen() {
       setShowLibrary(false)
       setSelectedCommandId(cmd.id)
     },
+    onError: () => Alert.alert('Command failed', 'The command could not be dispatched. Check your connection and try again.'),
   })
 
   const handleDispatch = (type: string, dangerous: boolean) => {
@@ -167,6 +168,17 @@ export default function DeviceDetailScreen() {
     return (
       <View style={styles.center}>
         <ActivityIndicator size="large" color="#2563eb" />
+      </View>
+    )
+  }
+
+  if (isError || !device) {
+    return (
+      <View style={styles.center}>
+        <Text style={styles.emptyText}>Couldn't load this device. Check your connection and try again.</Text>
+        <TouchableOpacity style={styles.retryButton} onPress={() => refetch()}>
+          <Text style={styles.retryButtonText}>Retry</Text>
+        </TouchableOpacity>
       </View>
     )
   }
@@ -271,7 +283,9 @@ export default function DeviceDetailScreen() {
 }
 
 const styles = StyleSheet.create({
-  center: { flex: 1, alignItems: 'center', justifyContent: 'center' },
+  center: { flex: 1, alignItems: 'center', justifyContent: 'center', padding: 32 },
+  retryButton: { backgroundColor: '#2563eb', borderRadius: 10, paddingHorizontal: 20, paddingVertical: 10, marginTop: 14 },
+  retryButtonText: { color: '#fff', fontWeight: '600', fontSize: 14 },
   tabBar: {
     flexDirection: 'row',
     backgroundColor: '#fff',

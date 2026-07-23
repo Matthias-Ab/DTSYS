@@ -1,5 +1,6 @@
 import { useEffect, useRef } from 'react'
 import { useAlertStore } from '../store/alertStore'
+import { useAuthStore } from '../store/authStore'
 import type { Alert } from '../types'
 
 let sseActive = false
@@ -21,7 +22,7 @@ export function useSSE(enabled = true) {
       return undefined
     }
 
-    const token = localStorage.getItem('access_token')
+    const token = useAuthStore.getState().accessToken
     if (!token) {
       return undefined
     }

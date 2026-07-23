@@ -8,7 +8,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.core.redis import check_rate_limit, get_redis
 from app.db.session import get_db
 from app.core.exceptions import UnauthorizedError
-from app.core.security import decode_token
+from app.core.security import decode_token, set_refresh_cookie, REFRESH_COOKIE_NAME, REFRESH_COOKIE_PATH
 from app.dependencies import get_current_user
 from app.core.rate_limit import limiter
 from app.models.user import User
@@ -24,11 +24,11 @@ class LoginRequest(BaseModel):
 
 
 class RefreshRequest(BaseModel):
-    refresh_token: str
+    refresh_token: str | None = None
 
 
 class LogoutRequest(BaseModel):
-    refresh_token: str
+    refresh_token: str | None = None
 
 @router.post("/login")
 @limiter.limit("10/minute")
@@ -72,29 +72,48 @@ async def login(
         ip=client_ip,
     )
     await db.commit()
+    set_refresh_cookie(response, tokens["refresh_token"])
     return tokens
 
 
 @router.post("/refresh")
+@limiter.limit("20/minute")
 async def refresh(
+    request: Request,
+    response: Response,
     body: RefreshRequest,
     db: Annotated[AsyncSession, Depends(get_db)],
     redis: Annotated[Redis, Depends(get_redis)],
 ):
-    if await redis.get(f"revoked:refresh:{body.refresh_token}"):
+    refresh_token = body.refresh_token or request.cookies.get(REFRESH_COOKIE_NAME)
+    if not refresh_token:
+        raise UnauthorizedError("Missing refresh token")
+
+    if await redis.get(f"revoked:refresh:{refresh_token}"):
         raise UnauthorizedError("Refresh token revoked")
     service = AuthService(db)
-    return await service.refresh_access_token(body.refresh_token)
+    tokens = await service.refresh_access_token(refresh_token)
+    set_refresh_cookie(response, tokens["refresh_token"])
+    return tokens
 
 
 @router.post("/logout")
+@limiter.limit("20/minute")
 async def logout(
+    request: Request,
+    response: Response,
     body: LogoutRequest,
     current_user: Annotated[User, Depends(get_current_user)],
     redis: Annotated[Redis, Depends(get_redis)],
 ):
+    refresh_token = body.refresh_token or request.cookies.get(REFRESH_COOKIE_NAME)
+    response.delete_cookie(REFRESH_COOKIE_NAME, path=REFRESH_COOKIE_PATH)
+
+    if not refresh_token:
+        return {"message": "Logged out"}
+
     try:
-        payload = decode_token(body.refresh_token)
+        payload = decode_token(refresh_token)
     except ValueError:
         raise UnauthorizedError("Invalid refresh token")
 
@@ -105,7 +124,7 @@ async def logout(
     ttl = 0
     if exp:
         ttl = max(int(exp - time.time()), 0)
-    await redis.setex(f"revoked:refresh:{body.refresh_token}", ttl or 3600, "revoked")
+    await redis.setex(f"revoked:refresh:{refresh_token}", ttl or 3600, "revoked")
     return {"message": "Logged out"}
 
 

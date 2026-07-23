@@ -104,7 +104,7 @@ func (c *Client) connect(ctx context.Context) error {
 	}
 	conn, _, err := dialer.DialContext(ctx, wsURL, nil)
 	if err != nil {
-		return fmt.Errorf("dial %s: %w", wsURL, err)
+		return fmt.Errorf("dial %s: %w", redactWSURL(wsURL), err)
 	}
 
 	c.mu.Lock()
@@ -113,7 +113,7 @@ func (c *Client) connect(ctx context.Context) error {
 	c.writeDone = make(chan struct{})
 	c.mu.Unlock()
 
-	slog.Info("connected to server", "url", wsURL)
+	slog.Info("connected to server", "url", redactWSURL(wsURL))
 
 	// Start write pump
 	go c.writePump()
@@ -380,6 +380,21 @@ func buildWSURL(serverURL, deviceID, apiKey string) (string, error) {
 	q.Set("token", apiKey)
 	u.RawQuery = q.Encode()
 	return u.String(), nil
+}
+
+// redactWSURL returns wsURL with the "token" query parameter (the device API
+// key) masked, so it is safe to write to logs.
+func redactWSURL(wsURL string) string {
+	u, err := url.Parse(wsURL)
+	if err != nil {
+		return "[redacted: unparseable url]"
+	}
+	q := u.Query()
+	if q.Get("token") != "" {
+		q.Set("token", "[redacted]")
+	}
+	u.RawQuery = q.Encode()
+	return u.String()
 }
 
 // backoff implements exponential backoff with cap

@@ -20,7 +20,7 @@ export default function Login() {
     try {
       const tokens = await authApi.login(username, password)
       const payload = jwtDecode<{ sub: string; role: string; username: string }>(tokens.access_token)
-      login(tokens.access_token, tokens.refresh_token, payload.username ?? username, payload.role ?? 'viewer')
+      login(tokens.access_token, payload.username ?? username, payload.role ?? 'viewer')
       navigate('/')
     } catch {
       setError('Invalid username or password')

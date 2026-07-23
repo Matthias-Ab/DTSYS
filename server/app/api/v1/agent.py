@@ -4,6 +4,7 @@ from fastapi import APIRouter, HTTPException, Query, Request
 from fastapi.responses import FileResponse
 
 from app.version import VERSION
+from app.core.rate_limit import limiter
 
 router = APIRouter(prefix="/agent", tags=["agent"])
 
@@ -23,12 +24,15 @@ async def get_agent_version(
         "version": dist_version or VERSION,
         "download_url": f"{base_url}/api/v1/agent/download?arch={arch}&platform={platform}",
         "changelog_url": f"{base_url}/CHANGELOG.md",
+        "sha256": _read_binary_checksum(platform, arch),
         "required": False,
     }
 
 
 @router.get("/download")
+@limiter.limit("20/minute")
 async def download_agent(
+    request: Request,
     platform: str = Query(..., pattern="^(linux|darwin|windows)$"),
     arch: str = Query(..., pattern="^(amd64|arm64)$"),
 ):
@@ -48,5 +52,20 @@ def _read_dist_version() -> str | None:
         return None
     try:
         return version_path.read_text(encoding="utf-8").strip()
+    except Exception:
+        return None
+
+
+def _read_binary_checksum(platform: str, arch: str) -> str | None:
+    """Return the sha256 hex digest for the binary this version_url will point to."""
+    suffix = ".exe" if platform == "windows" else ""
+    filename = f"dtsys-agent-{platform}-{arch}{suffix}"
+    dist_dir = Path(os.getenv("AGENT_DIST_DIR", _DEFAULT_DIST))
+    checksum_path = dist_dir / f"{filename}.sha256"
+    if not checksum_path.exists():
+        return None
+    try:
+        digest = checksum_path.read_text(encoding="utf-8").strip().split()[0]
+        return digest or None
     except Exception:
         return None

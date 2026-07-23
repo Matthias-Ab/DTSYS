@@ -21,6 +21,8 @@ client/dist/
 *.so
 *.dylib
 client/bin/
+go*.linux-*.tar.gz
+go*.darwin-*.tar.gz
 
 # Node / Frontend
 node_modules/

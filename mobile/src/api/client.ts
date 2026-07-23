@@ -6,7 +6,9 @@ const STORAGE_KEY_REFRESH = 'refresh_token'
 const STORAGE_KEY_SERVER = 'server_url'
 
 export async function getServerUrl(): Promise<string> {
-  return (await SecureStore.getItemAsync(STORAGE_KEY_SERVER)) ?? 'http://localhost:8000'
+  // No hardcoded default: the user always enters their own server address on
+  // the login screen, which warns before submitting over plain http://.
+  return (await SecureStore.getItemAsync(STORAGE_KEY_SERVER)) ?? ''
 }
 
 export async function getAccessToken(): Promise<string | null> {

@@ -2,7 +2,7 @@ version: "3.9"
 
 services:
   postgres:
-    image: timescale/timescaledb:latest-pg16
+    image: timescale/timescaledb:2.17.2-pg16
     restart: always
     environment:
       POSTGRES_DB: ${POSTGRES_DB:-dtsys}
@@ -37,7 +37,7 @@ services:
       DATABASE_URL: postgresql+asyncpg://${POSTGRES_USER:-dtsys}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB:-dtsys}
       REDIS_URL: redis://:${REDIS_PASSWORD}@redis:6379/0
       SECRET_KEY: ${SECRET_KEY:?SECRET_KEY required}
-      FIRST_ADMIN_PASSWORD: ${FIRST_ADMIN_PASSWORD:-changeme}
+      FIRST_ADMIN_PASSWORD: ${FIRST_ADMIN_PASSWORD:?FIRST_ADMIN_PASSWORD required}
       ENVIRONMENT: production
       ENV: production
     depends_on:
@@ -48,7 +48,6 @@ services:
     expose:
       - "8000"
     volumes:
-      - ./server:/app
       - ./dist:/app/dist:ro
     command: uvicorn app.main:app --host 0.0.0.0 --port 8000 --workers 2
     healthcheck:
@@ -115,7 +114,7 @@ services:
       retries: 3
 
   nginx:
-    image: nginx:alpine
+    image: nginx:1.27-alpine
     restart: always
     ports:
       - "80:80"

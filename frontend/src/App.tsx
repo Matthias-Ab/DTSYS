@@ -1,5 +1,7 @@
+import { useEffect } from 'react'
 import { BrowserRouter, Navigate, Route, Routes } from 'react-router-dom'
 import { QueryClient, QueryClientProvider, useQuery } from '@tanstack/react-query'
+import { authApi } from './api/auth'
 import Layout from './components/layout/Layout'
 import ErrorBoundary from './components/ui/ErrorBoundary'
 import WhatsNew from './components/ui/WhatsNew'
@@ -34,6 +36,29 @@ const queryClient = new QueryClient({
     },
   },
 })
+
+// The access token lives only in memory, so a hard page reload starts with
+// none. Before deciding whether to bounce to /login, we try one silent
+// /auth/refresh — the httpOnly cookie set at login carries the real
+// credential, so this succeeds transparently for anyone with a valid session.
+function useAuthInit() {
+  const { isAuthenticated, isInitializing, setAccessToken, finishInitializing, logout } = useAuthStore()
+
+  useEffect(() => {
+    if (isAuthenticated) {
+      finishInitializing()
+      return
+    }
+    authApi
+      .refresh()
+      .then((tokens) => setAccessToken(tokens.access_token))
+      .catch(() => logout())
+      .finally(() => finishInitializing())
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [])
+
+  return isInitializing
+}
 
 function ProtectedRoute({ children }: { children: React.ReactNode }) {
   const { isAuthenticated } = useAuthStore()
@@ -71,10 +96,15 @@ function withBoundary(element: React.ReactNode) {
   return <ErrorBoundary>{element}</ErrorBoundary>
 }
 
-export default function App() {
+function AppRoutes() {
+  const isInitializing = useAuthInit()
+
+  if (isInitializing) {
+    return <div className="flex min-h-screen items-center justify-center text-sm text-slate-500 dark:text-gray-500">Loading...</div>
+  }
+
   return (
-    <QueryClientProvider client={queryClient}>
-      <BrowserRouter future={{ v7_startTransition: true, v7_relativeSplatPath: true }}>
+    <BrowserRouter future={{ v7_startTransition: true, v7_relativeSplatPath: true }}>
         <Routes>
           <Route path="/login" element={withBoundary(<Login />)} />
           <Route path="/status" element={withBoundary(<Status />)} />
@@ -114,7 +144,14 @@ export default function App() {
           </Route>
           <Route path="*" element={<Navigate to="/" replace />} />
         </Routes>
-      </BrowserRouter>
+    </BrowserRouter>
+  )
+}
+
+export default function App() {
+  return (
+    <QueryClientProvider client={queryClient}>
+      <AppRoutes />
     </QueryClientProvider>
   )
 }

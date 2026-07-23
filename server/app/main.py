@@ -26,6 +26,7 @@ from app.websocket.router import router as ws_router
 from app.tasks.cleanup_tasks import cleanup_stale_commands
 
 settings = get_settings()
+settings.assert_production_safe()
 configure_logging()
 START_TIME = time.monotonic()
 

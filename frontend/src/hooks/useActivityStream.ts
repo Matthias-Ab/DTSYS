@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react'
+import { useAuthStore } from '../store/authStore'
 import type { ActivityEvent } from '../types'
 
 export function useActivityStream(enabled = true) {
@@ -9,7 +10,7 @@ export function useActivityStream(enabled = true) {
       return undefined
     }
 
-    const token = localStorage.getItem('access_token')
+    const token = useAuthStore.getState().accessToken
     if (!token) {
       return undefined
     }

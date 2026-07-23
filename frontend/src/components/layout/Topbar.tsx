@@ -10,6 +10,7 @@ import { useThemeStore } from '../../store/themeStore'
 import { useGlobalSearchStore } from '../../store/globalSearchStore'
 import { useLayoutStore } from '../../store/layoutStore'
 import { orgsApi } from '../../api/organizations'
+import { authApi } from '../../api/auth'
 
 export default function Topbar() {
   const { username, role, orgId, orgName, logout, setOrgContext } = useAuthStore()
@@ -53,6 +54,9 @@ export default function Topbar() {
   }, [])
 
   const handleLogout = () => {
+    authApi.logout().catch(() => {
+      // best-effort server-side revocation; local session is cleared regardless
+    })
     logout()
     navigate('/login')
   }
@@ -60,7 +64,7 @@ export default function Topbar() {
   const switchOrg = async (targetOrgId: string, targetOrgName: string) => {
     try {
       const tokens = await orgsApi.switch(targetOrgId)
-      setOrgContext(targetOrgId, targetOrgName, tokens.access_token, tokens.refresh_token)
+      setOrgContext(targetOrgId, targetOrgName, tokens.access_token)
       setOrgMenuOpen(false)
       window.location.href = '/'
     } catch {

@@ -1,14 +1,17 @@
 import os
 from pathlib import Path
 
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, HTTPException, Request
 from fastapi.responses import FileResponse
+
+from app.core.rate_limit import limiter
 
 router = APIRouter(prefix="/downloads", tags=["downloads"])
 
 
 @router.get("/{filename}")
-async def download_agent(filename: str):
+@limiter.limit("20/minute")
+async def download_agent(request: Request, filename: str):
     dist_dir = Path(os.getenv("AGENT_DIST_DIR", "./dist/agents/")).resolve()
     file_path = (dist_dir / filename).resolve()
 

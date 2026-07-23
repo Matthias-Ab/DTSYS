@@ -50,7 +50,16 @@ func Execute(ctx context.Context, cmd transport.IncomingCommand, send func(trans
 	var err error
 
 	switch cmd.CommandType {
-	case "shell":
+	case "shell", "script":
+		if diagnosticsConfigFn != nil {
+			if cfg := diagnosticsConfigFn(); cfg != nil && cfg.Executor.DisableShell {
+				return transport.CommandResultData{
+					CommandID: cmd.CommandID,
+					ExitCode:  1,
+					Output:    "shell/script command execution is disabled on this device (executor.disable_shell = true)",
+				}
+			}
+		}
 		out, exitCode, err = runShell(execCtx, cmd.Payload)
 	case "reboot":
 		out, exitCode, err = runReboot(execCtx)

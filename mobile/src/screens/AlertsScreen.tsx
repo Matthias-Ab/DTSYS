@@ -1,10 +1,12 @@
 import { useCallback } from 'react'
 import {
   ActivityIndicator,
+  Alert,
   FlatList,
   RefreshControl,
   StyleSheet,
   Text,
+  TouchableOpacity,
   View,
 } from 'react-native'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
@@ -52,7 +54,7 @@ function AlertCard({ alert, onResolve }: { alert: AlertItem; onResolve: () => vo
 export default function AlertsScreen() {
   const queryClient = useQueryClient()
 
-  const { data: rawAlerts = [], isLoading, refetch, isFetching } = useQuery<AlertItem[]>({
+  const { data: rawAlerts = [], isLoading, isError, refetch, isFetching } = useQuery<AlertItem[]>({
     queryKey: ['mobile-all-alerts'],
     queryFn: () => api.get('/alerts', { params: { resolved: false, limit: 200 } }).then((r) => r.data),
     refetchInterval: 30000,
@@ -67,6 +69,7 @@ export default function AlertsScreen() {
   const resolve = useMutation({
     mutationFn: (alertId: string) => api.post(`/alerts/${alertId}/resolve`),
     onSuccess: () => queryClient.invalidateQueries({ queryKey: ['mobile-all-alerts'] }),
+    onError: () => Alert.alert('Could not resolve alert', 'Please check your connection and try again.'),
   })
 
   const renderAlert = useCallback(({ item }: { item: AlertItem }) => (
@@ -77,6 +80,17 @@ export default function AlertsScreen() {
     return (
       <View style={styles.center}>
         <ActivityIndicator size="large" color="#2563eb" />
+      </View>
+    )
+  }
+
+  if (isError) {
+    return (
+      <View style={styles.center}>
+        <Text style={styles.errorText}>Couldn't load alerts. Check your connection and try again.</Text>
+        <TouchableOpacity style={styles.retryButton} onPress={() => refetch()}>
+          <Text style={styles.retryButtonText}>Retry</Text>
+        </TouchableOpacity>
       </View>
     )
   }
@@ -101,6 +115,9 @@ const styles = StyleSheet.create({
   list: { padding: 16, gap: 10 },
   center: { flex: 1, alignItems: 'center', justifyContent: 'center', padding: 32 },
   emptyText: { color: '#94a3b8', fontSize: 15 },
+  errorText: { color: '#ef4444', fontSize: 14, textAlign: 'center', marginBottom: 14 },
+  retryButton: { backgroundColor: '#2563eb', borderRadius: 10, paddingHorizontal: 20, paddingVertical: 10 },
+  retryButtonText: { color: '#fff', fontWeight: '600', fontSize: 14 },
   card: {
     backgroundColor: '#fff',
     borderRadius: 12,

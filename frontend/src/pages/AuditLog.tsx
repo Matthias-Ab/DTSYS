@@ -2,7 +2,6 @@ import { useCallback, useEffect, useRef, useState } from 'react'
 import { useQuery } from '@tanstack/react-query'
 import { ClipboardList, Download, RefreshCw, Wifi } from 'lucide-react'
 import api from '../api/client'
-import { useAuthStore } from '../store/authStore'
 
 interface AuditEntry {
   id: string
@@ -48,7 +47,6 @@ export default function AuditLog() {
   const [liveEntries, setLiveEntries] = useState<AuditEntry[]>([])
   const [liveMode, setLiveMode] = useState(false)
   const sseRef = useRef<EventSource | null>(null)
-  const { accessToken } = useAuthStore()
   const limit = 50
 
   const { data, isLoading, refetch } = useQuery<AuditResponse>({
@@ -64,9 +62,13 @@ export default function AuditLog() {
     },
   })
 
-  const startLive = useCallback(() => {
+  const startLive = useCallback(async () => {
     if (sseRef.current) sseRef.current.close()
-    const sse = new EventSource(`/api/v1/audit/stream?token=${accessToken ?? ''}`)
+    // EventSource can't send an Authorization header, so we first mint a
+    // single-use, 30-second ticket over a normal authenticated request and
+    // pass only that (not the real access token) in the stream URL.
+    const { data } = await api.post<{ ticket: string }>('/audit/stream/ticket')
+    const sse = new EventSource(`/api/v1/audit/stream?ticket=${data.ticket}`)
     sse.onmessage = (e) => {
       try {
         const entry: AuditEntry = JSON.parse(e.data)
@@ -86,12 +88,20 @@ export default function AuditLog() {
 
   useEffect(() => () => { sseRef.current?.close() }, [])
 
-  const handleExport = () => {
-    const params = new URLSearchParams()
-    if (filters.action) params.set('action', filters.action)
-    if (filters.since) params.set('since', filters.since)
-    if (filters.until) params.set('until', filters.until)
-    window.location.href = `/api/v1/audit/export/csv?${params}`
+  const handleExport = async () => {
+    // A bare navigation can't carry the Authorization header this API needs,
+    // so fetch the CSV as a blob through the authenticated client instead.
+    const params: Record<string, string> = {}
+    if (filters.action) params.action = filters.action
+    if (filters.since) params.since = filters.since
+    if (filters.until) params.until = filters.until
+    const response = await api.get('/audit/export/csv', { params, responseType: 'blob' })
+    const url = URL.createObjectURL(response.data as Blob)
+    const link = document.createElement('a')
+    link.href = url
+    link.download = 'audit-log.csv'
+    link.click()
+    URL.revokeObjectURL(url)
   }
 
   const items = liveMode ? liveEntries : (data?.items ?? [])

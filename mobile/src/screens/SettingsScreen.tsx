@@ -46,7 +46,7 @@ export default function SettingsScreen({ onLogout }: Props) {
         <Text style={styles.sectionTitle}>App</Text>
         <View style={styles.row}>
           <Text style={styles.label}>Version</Text>
-          <Text style={styles.value}>1.2.0</Text>
+          <Text style={styles.value}>1.0.0</Text>
         </View>
       </View>
 

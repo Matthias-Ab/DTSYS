@@ -1,7 +1,8 @@
 param(
     [string]$Server,
     [string]$Token,
-    [string]$InstallDir = "C:\Program Files\DTSYS"
+    [string]$InstallDir = "C:\Program Files\DTSYS",
+    [switch]$AllowInsecureHttp
 )
 
 if (-not $Server) { $Server = $env:DTSYS_SERVER }
@@ -9,6 +10,17 @@ if (-not $Token) { $Token = $env:DTSYS_TOKEN }
 if (-not $Server -or -not $Token) {
     Write-Error "Usage: .\install-agent.ps1 -Server <url> -Token <token>"
     Write-Error "   or: set DTSYS_SERVER and DTSYS_TOKEN env vars first"
+    exit 1
+}
+
+if ($Server -match '^http://') {
+    if (-not $AllowInsecureHttp) {
+        Write-Error "Server must use https:// (otherwise the enrollment token and API key are sent in plaintext). Pass -AllowInsecureHttp to override for local/dev testing only."
+        exit 1
+    }
+    Write-Warning "Installing over plaintext http:// -- credentials will be sent unencrypted."
+} elseif ($Server -notmatch '^https://') {
+    Write-Error "Server must start with https:// or http://"
     exit 1
 }
 
@@ -24,10 +36,28 @@ New-Item -ItemType Directory -Path $InstallDir -Force | Out-Null
 
 $arch = if ([Environment]::Is64BitOperatingSystem) { "amd64" } else { "386" }
 $agentUrl = ($Server.TrimEnd('/')) + "/api/v1/agent/download?arch=$arch&platform=windows"
+$versionUrl = ($Server.TrimEnd('/')) + "/api/v1/agent/version?arch=$arch&platform=windows"
 $agentExe = Join-Path $InstallDir "dtsys-agent.exe"
 
+$versionInfo = Invoke-RestMethod -Uri $versionUrl
+$expectedSha256 = if ($versionInfo.sha256) { $versionInfo.sha256.ToLower() } else { "" }
+if ($expectedSha256.Length -ne 64) {
+    Write-Error "Server did not provide a sha256 checksum for this build; refusing to install an unverified binary."
+    exit 1
+}
+
 Write-Host "Downloading agent from $agentUrl"
-Invoke-WebRequest -Uri $agentUrl -OutFile $agentExe
+$tempExe = Join-Path $env:TEMP ([System.IO.Path]::GetRandomFileName())
+Invoke-WebRequest -Uri $agentUrl -OutFile $tempExe
+
+$actualSha256 = (Get-FileHash -Path $tempExe -Algorithm SHA256).Hash.ToLower()
+if ($actualSha256 -ne $expectedSha256) {
+    Remove-Item -Path $tempExe -Force
+    Write-Error "Checksum mismatch: expected $expectedSha256, got $actualSha256. Refusing to install."
+    exit 1
+}
+
+Move-Item -Path $tempExe -Destination $agentExe -Force
 
 $hostname = $env:COMPUTERNAME
 $osVersion = (Get-CimInstance Win32_OperatingSystem).Version
@@ -70,7 +100,7 @@ rate_limit_max = 20
 rate_limit_window_s = 30
 
 [tls]
-skip_time_check = true
+skip_time_check = false
 
 [update]
 auto_update = true

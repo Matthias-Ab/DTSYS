@@ -3,6 +3,7 @@ from datetime import datetime, timedelta, timezone
 from typing import Any
 
 import bcrypt
+from fastapi import Response
 from jose import JWTError, jwt
 
 from app.config import get_settings
@@ -10,6 +11,26 @@ from app.config import get_settings
 settings = get_settings()
 
 ALGORITHM = "HS256"
+
+# The refresh token is set as an httpOnly cookie for browser clients so it's
+# unreadable to JS (and therefore to an XSS payload) — the web frontend never
+# needs to see or store it. It's also still returned in the JSON body by the
+# auth endpoints for the mobile app, which has no cookie jar and stores it in
+# expo-secure-store instead.
+REFRESH_COOKIE_NAME = "dtsys_refresh_token"
+REFRESH_COOKIE_PATH = "/api/v1/auth"
+
+
+def set_refresh_cookie(response: Response, refresh_token: str) -> None:
+    response.set_cookie(
+        key=REFRESH_COOKIE_NAME,
+        value=refresh_token,
+        httponly=True,
+        secure=settings.is_production,
+        samesite="strict",
+        path=REFRESH_COOKIE_PATH,
+        max_age=settings.REFRESH_TOKEN_EXPIRE_DAYS * 86400,
+    )
 
 
 def hash_password(password: str) -> str:

@@ -3,21 +3,44 @@ from __future__ import annotations
 
 import asyncio
 import json
+import secrets
 import uuid
 from datetime import datetime, timezone
 from typing import Annotated, AsyncGenerator
 
-from fastapi import APIRouter, Depends, Query, Request
+from fastapi import APIRouter, Depends, HTTPException, Query, Request
 from fastapi.responses import StreamingResponse
+from redis.asyncio import Redis
 from sqlalchemy import select, func
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.core.redis import get_redis
 from app.db.session import get_db, AsyncSessionLocal
 from app.dependencies import get_current_org_id, get_current_user, require_admin
 from app.models.audit_log import AuditLog
 from app.models.user import User
 
 router = APIRouter(prefix="/audit", tags=["audit"])
+
+# EventSource (the browser SSE client) can't send an Authorization header, so
+# the stream can only be authenticated via the URL. Rather than put the real
+# (long-lived, full-API-access) JWT in the URL — which then leaks into proxy
+# logs, browser history, and Referer headers — the client first mints a
+# single-use, 30-second ticket over a normal Bearer-authenticated request and
+# passes only that opaque ticket in the SSE URL.
+STREAM_TICKET_PREFIX = "audit_stream_ticket:"
+STREAM_TICKET_TTL_SECONDS = 30
+
+
+@router.post("/stream/ticket")
+async def create_stream_ticket(
+    current_user: Annotated[User, Depends(require_admin)],
+    redis: Annotated[Redis, Depends(get_redis)],
+):
+    """Issue a short-lived, single-use ticket for authenticating GET /audit/stream."""
+    ticket = secrets.token_urlsafe(32)
+    await redis.setex(f"{STREAM_TICKET_PREFIX}{ticket}", STREAM_TICKET_TTL_SECONDS, str(current_user.id))
+    return {"ticket": ticket, "expires_in": STREAM_TICKET_TTL_SECONDS}
 
 
 @router.get("")
@@ -177,31 +200,32 @@ async def _audit_sse_generator(request: Request) -> AsyncGenerator[str, None]:
 async def _require_admin_sse(
     request: Request,
     db: AsyncSession,
-    token_param: str | None,
+    redis: Redis,
+    ticket_param: str | None,
 ) -> None:
-    """Auth for SSE: accepts Bearer header or ?token= query param."""
+    """Auth for SSE: accepts a normal Bearer header, or a single-use ticket
+    minted by POST /audit/stream/ticket (for EventSource, which can't send headers)."""
     from app.core.security import decode_token
-    from fastapi import HTTPException
 
-    raw_token: str | None = None
+    user_id: str | None = None
+
     auth_header = request.headers.get("authorization", "")
     if auth_header.startswith("Bearer "):
-        raw_token = auth_header[7:]
-    elif token_param:
-        raw_token = token_param
+        try:
+            payload = decode_token(auth_header[7:])
+        except Exception:
+            raise HTTPException(status_code=401, detail="Invalid token")
+        if payload.get("type") != "access":
+            raise HTTPException(status_code=401, detail="Wrong token type")
+        user_id = payload.get("sub")
+    elif ticket_param:
+        ticket_key = f"{STREAM_TICKET_PREFIX}{ticket_param}"
+        raw_user_id = await redis.get(ticket_key)
+        if raw_user_id is None:
+            raise HTTPException(status_code=401, detail="Invalid or expired ticket")
+        await redis.delete(ticket_key)  # single use
+        user_id = raw_user_id.decode() if isinstance(raw_user_id, (bytes, bytearray)) else raw_user_id
 
-    if not raw_token:
-        raise HTTPException(status_code=401, detail="Unauthorized")
-
-    try:
-        payload = decode_token(raw_token)
-    except Exception:
-        raise HTTPException(status_code=401, detail="Invalid token")
-
-    if payload.get("type") != "access":
-        raise HTTPException(status_code=401, detail="Wrong token type")
-
-    user_id = payload.get("sub")
     if not user_id:
         raise HTTPException(status_code=401, detail="Unauthorized")
 
@@ -215,12 +239,14 @@ async def _require_admin_sse(
 async def audit_stream(
     request: Request,
     db: Annotated[AsyncSession, Depends(get_db)],
-    token: str | None = Query(default=None),
+    redis: Annotated[Redis, Depends(get_redis)],
+    ticket: str | None = Query(default=None),
 ):
     """SSE stream of new audit log entries. Admin only.
-    Accepts Bearer token via Authorization header or ?token= query param (for EventSource).
+    Accepts a Bearer Authorization header, or a single-use ?ticket= from
+    POST /audit/stream/ticket (EventSource cannot set custom headers).
     """
-    await _require_admin_sse(request, db, token)
+    await _require_admin_sse(request, db, redis, ticket)
     return StreamingResponse(
         _audit_sse_generator(request),
         media_type="text/event-stream",

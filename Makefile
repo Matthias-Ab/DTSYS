@@ -1,7 +1,7 @@
 GO ?= go
 UV ?= server/.venv/bin/uv
 
-.PHONY: dev dev-server dev-frontend dev-agent dev-reset backup build-agents build-frontend docker-up docker-down dev-deps dev-stop migrate test-server test-client lint-server fmt-client clean
+.PHONY: dev dev-server dev-frontend dev-agent dev-reset backup restore build-agents build-frontend docker-up docker-down dev-deps dev-stop migrate test-server test-client lint-server fmt-client clean
 
 dev:
 	bash scripts/dev-start.sh
@@ -20,6 +20,9 @@ dev-reset:
 
 backup:
 	bash scripts/backup.sh
+
+restore:
+	bash scripts/restore.sh $(FILE)
 
 build-agents:
 	cd client && GOOS=linux GOARCH=amd64 $(GO) build -ldflags="-s -w -X main.AgentVersion=0.1.0" -o ../dist/agents/dtsys-agent-linux-amd64 ./cmd/agent/
