@@ -6,6 +6,7 @@ from sqlalchemy import select
 from app.config import get_settings
 from app.models.user import User
 from app.core.security import hash_password, verify_password, create_access_token, create_refresh_token, decode_token
+from app.core import totp
 from app.core.exceptions import UnauthorizedError
 
 
@@ -27,6 +28,18 @@ class AuthService:
             raise UnauthorizedError("Invalid username or password")
         user.last_login = datetime.now(timezone.utc)
         return user
+
+    def verify_mfa(self, user: User, otp: str | None) -> None:
+        """Raise unless the user has no MFA or supplied a fresh, valid TOTP code."""
+        if not user.totp_enabled:
+            return
+        if not otp:
+            raise UnauthorizedError("MFA code required")
+        secret = totp.decrypt_secret(user.totp_secret or "")
+        step = totp.verify_code(secret, otp, user.totp_last_step) if secret else None
+        if step is None:
+            raise UnauthorizedError("Invalid MFA code")
+        user.totp_last_step = step
 
     async def authenticate_ldap(self, username: str, password: str) -> User | None:
         settings = get_settings()

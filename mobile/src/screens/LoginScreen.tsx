@@ -17,13 +17,14 @@ interface Props {
 }
 
 export default function LoginScreen({ onLoginSuccess }: Props) {
-  const { login, loading, error } = useAuth()
+  const { login, loading, error, mfaRequired } = useAuth()
   const [serverUrl, setServerUrl] = useState('')
   const [username, setUsername] = useState('')
   const [password, setPassword] = useState('')
+  const [otp, setOtp] = useState('')
 
   const doLogin = async () => {
-    const ok = await login(serverUrl, username, password)
+    const ok = await login(serverUrl, username, password, mfaRequired ? otp : undefined)
     if (ok) onLoginSuccess()
   }
 
@@ -81,6 +82,22 @@ export default function LoginScreen({ onLoginSuccess }: Props) {
           placeholder="••••••••"
           placeholderTextColor="#9ca3af"
         />
+
+        {mfaRequired ? (
+          <>
+            <Text style={styles.label}>Authentication code</Text>
+            <TextInput
+              style={styles.input}
+              value={otp}
+              onChangeText={setOtp}
+              keyboardType="number-pad"
+              maxLength={6}
+              autoFocus
+              placeholder="6-digit code"
+              placeholderTextColor="#9ca3af"
+            />
+          </>
+        ) : null}
 
         {error ? <Text style={styles.error}>{error}</Text> : null}
 

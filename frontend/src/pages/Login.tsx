@@ -8,6 +8,8 @@ import { jwtDecode } from 'jwt-decode'
 export default function Login() {
   const [username, setUsername] = useState('')
   const [password, setPassword] = useState('')
+  const [otp, setOtp] = useState('')
+  const [needsOtp, setNeedsOtp] = useState(false)
   const [error, setError] = useState('')
   const [loading, setLoading] = useState(false)
   const { login } = useAuthStore()
@@ -18,12 +20,22 @@ export default function Login() {
     setError('')
     setLoading(true)
     try {
-      const tokens = await authApi.login(username, password)
+      const tokens = await authApi.login(username, password, needsOtp ? otp : undefined)
       const payload = jwtDecode<{ sub: string; role: string; username: string }>(tokens.access_token)
       login(tokens.access_token, payload.username ?? username, payload.role ?? 'viewer')
       navigate('/')
-    } catch {
-      setError('Invalid username or password')
+    } catch (err) {
+      const detail = (err as { response?: { data?: { detail?: string } } }).response?.data?.detail
+      if (detail === 'MFA code required') {
+        setNeedsOtp(true)
+        setError('')
+      } else if (detail === 'Invalid MFA code') {
+        setError('Invalid or expired authentication code')
+      } else {
+        setError('Invalid username or password')
+        setNeedsOtp(false)
+        setOtp('')
+      }
     } finally {
       setLoading(false)
     }
@@ -69,6 +81,25 @@ export default function Login() {
               className="w-full rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 text-sm text-slate-900 outline-none transition-colors focus:border-blue-500 dark:border-gray-700 dark:bg-gray-800 dark:text-gray-100"
             />
           </div>
+
+          {needsOtp && (
+            <div>
+              <label className="mb-1.5 block text-xs text-slate-500 dark:text-gray-400">Authentication code</label>
+              <input
+                type="text"
+                inputMode="numeric"
+                autoComplete="one-time-code"
+                pattern="[0-9]{6}"
+                maxLength={6}
+                value={otp}
+                onChange={(e) => setOtp(e.target.value)}
+                required
+                autoFocus
+                placeholder="6-digit code"
+                className="w-full rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 text-sm text-slate-900 outline-none transition-colors focus:border-blue-500 dark:border-gray-700 dark:bg-gray-800 dark:text-gray-100"
+              />
+            </div>
+          )}
 
           <button
             type="submit"

@@ -10,6 +10,7 @@ import Pagination from '../components/ui/Pagination'
 import { useAuthStore } from '../store/authStore'
 import { useBrandingStore } from '../store/brandingStore'
 import { exportToCSV } from '../utils/export'
+import MfaCard from '../components/MfaCard'
 
 export default function Settings() {
   const { role } = useAuthStore()
@@ -344,6 +345,8 @@ export default function Settings() {
           </p>
         </div>
       </section>
+
+      <MfaCard />
 
       <section className="rounded-xl border border-slate-200 bg-white p-5 dark:border-gray-800 dark:bg-gray-900">
         <h2 className="mb-1 text-sm font-semibold text-slate-900 dark:text-gray-200">Enrollment Token</h2>
