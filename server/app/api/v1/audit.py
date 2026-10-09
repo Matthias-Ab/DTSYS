@@ -123,7 +123,13 @@ async def export_audit_csv(
     def csv_escape(val: str | None) -> str:
         if val is None:
             return ""
-        val = str(val).replace('"', '""')
+        val = str(val)
+        # Neutralise spreadsheet formula injection: usernames and details are
+        # attacker-controlled (e.g. failed-login attempts) and this file is
+        # meant to be opened in Excel/Sheets.
+        if val[:1] in ("=", "+", "-", "@", "\t", "\r"):
+            val = "'" + val
+        val = val.replace('"', '""')
         return f'"{val}"'
 
     lines = ["timestamp,username,action,resource_type,resource_id,ip_address,details"]

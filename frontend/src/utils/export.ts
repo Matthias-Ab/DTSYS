@@ -1,5 +1,9 @@
-function escapeCSV(value: string) {
-  return `"${value.replace(/"/g, '""')}"`
+// Cells starting with = + - @ (or tab/CR) are executed as formulas by Excel/Sheets.
+// Device hostnames, usernames and software names are attacker-influenced, so
+// prefix a quote to force them to be treated as text.
+export function escapeCSV(value: string) {
+  const safe = /^[=+\-@\t\r]/.test(value) ? `'${value}` : value
+  return `"${safe.replace(/"/g, '""')}"`
 }
 
 export function exportToCSV(filename: string, headers: string[], rows: string[][]): void {
