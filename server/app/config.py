@@ -34,6 +34,10 @@ class Settings(BaseSettings):
     ALERT_CPU_TEMP_CELSIUS: float = 85.0
     ALERT_NTP_OFFSET_MS: float = 500.0
 
+    # Prometheus /metrics scrape endpoint. Disabled (404) when empty; otherwise
+    # requires "Authorization: Bearer <token>".
+    METRICS_TOKEN: str = ""
+
     # First admin (used during DB seed only)
     FIRST_ADMIN_PASSWORD: str = "changeme"
 

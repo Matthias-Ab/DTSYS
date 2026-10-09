@@ -13,6 +13,7 @@ from starlette.middleware.base import BaseHTTPMiddleware
 
 from app.api.v1.router import router as api_router
 from app.api.v1.installer import router as installer_router
+from app.api.metrics_exporter import router as metrics_router
 from app.config import get_settings
 from app.core.logging import configure_logging
 from app.core.rate_limit import limiter
@@ -128,6 +129,7 @@ app.add_middleware(SecurityHeadersMiddleware)
 app.include_router(api_router)
 app.include_router(ws_router)
 app.include_router(installer_router)
+app.include_router(metrics_router)
 
 
 @app.get("/health")
