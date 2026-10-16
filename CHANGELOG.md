@@ -11,6 +11,10 @@
 - **Status page** and **agent installer** URLs now work behind nginx (`/api/v1/status`; scripts mounted into the server container)
 - **CSV exports** neutralise spreadsheet formula injection (audit export and frontend exports)
 
+- **Celery tasks** (scheduled commands, offline-device alerts, cleanup, email) crashed after their first run in a worker (`another operation is in progress`) because loop-bound DB/Redis connections were reused across `asyncio.run` calls; tasks now run through `run_async`
+- **Command results** could be lost or overwritten: the command row is now committed before it is sent to the device, and status updates are conditional
+- `generate_certs.sh` now adds subjectAltName (agents and browsers reject certificates without it); beat healthcheck fixed
+
 ### Added
 - Scheduled database backups (`backup` service in `docker-compose.prod.yml`); `restore.sh` fixed for TimescaleDB and verified with a restore drill
 - TOTP multi-factor authentication (web + mobile), `/metrics` Prometheus endpoint (`METRICS_TOKEN`), ed25519-signed agent releases (`release-sign`), vitest frontend tests

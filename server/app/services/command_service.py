@@ -1,7 +1,8 @@
 import uuid
 from datetime import datetime, timezone
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy import select, func
+from sqlalchemy import func, select, update
+from sqlalchemy.orm.attributes import set_committed_value
 
 from app.models.command import Command
 from app.models.device import Device
@@ -65,8 +66,12 @@ class CommandService:
         )
         self.db.add(command)
         await self.db.flush()
+        # The row must be durable and visible BEFORE the device can answer: a fast
+        # agent replies within milliseconds, and the result handler runs in another
+        # session. Dispatching first (as this used to) dropped results for rows not
+        # yet committed, or had them overwritten back to "sent" by our later commit.
+        await self.db.commit()
 
-        # Try to send immediately if device is online
         sent = await manager.send_to_device(
             device_id,
             {
@@ -79,15 +84,27 @@ class CommandService:
             },
         )
 
+        # Conditional updates (never an ORM flush of a stale status) so a result that
+        # already arrived is not clobbered.
         if sent:
-            command.status = "sent"
+            await self.db.execute(
+                update(Command).where(Command.id == command.id, Command.status == "pending").values(status="sent")
+            )
+            set_committed_value(command, "status", "sent")
             log.info("command_sent", command_id=str(command.id), device_id=str(device_id))
         else:
             log.warning("command_queued_device_offline", command_id=str(command.id))
             if fail_if_offline:
-                command.status = "failed"
-                command.output = "Device not connected"
-                command.completed_at = datetime.now(timezone.utc)
+                completed_at = datetime.now(timezone.utc)
+                await self.db.execute(
+                    update(Command)
+                    .where(Command.id == command.id, Command.status == "pending")
+                    .values(status="failed", output="Device not connected", completed_at=completed_at)
+                )
+                set_committed_value(command, "status", "failed")
+                set_committed_value(command, "output", "Device not connected")
+                set_committed_value(command, "completed_at", completed_at)
+        await self.db.commit()
 
         return command, sent
 

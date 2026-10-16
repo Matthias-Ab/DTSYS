@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import asyncio
 from datetime import datetime, timezone
 
 from croniter import croniter
@@ -11,6 +10,7 @@ from app.db.session import AsyncSessionLocal
 from app.models.device import Device
 from app.models.scheduled_command import ScheduledCommand
 from app.services.command_service import CommandService
+from app.tasks.async_runner import run_async
 from app.tasks.celery_app import celery_app
 
 log = get_logger(__name__)
@@ -18,7 +18,7 @@ log = get_logger(__name__)
 
 @celery_app.task(name="app.tasks.scheduler_tasks.run_scheduled_commands")
 def run_scheduled_commands() -> None:
-    asyncio.run(_run_scheduled_commands())
+    run_async(_run_scheduled_commands())
 
 
 async def _run_scheduled_commands() -> None:

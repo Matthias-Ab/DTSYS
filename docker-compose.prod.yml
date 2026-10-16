@@ -121,8 +121,10 @@ services:
       redis:
         condition: service_healthy
     command: celery -A app.tasks.celery_app beat --loglevel=info
+    # beat is not a worker, so `celery inspect ping` can never succeed for it;
+    # check that a celery beat process is alive instead.
     healthcheck:
-      test: ["CMD-SHELL", "celery -A app.tasks.celery_app inspect ping -d celery@$(hostname)"]
+      test: ["CMD", "python", "-c", "import os,sys; sys.exit(0 if any(b'celery' in c and b'beat' in c for c in (open('/proc/%s/cmdline' % p,'rb').read() for p in os.listdir('/proc') if p.isdigit() and int(p) != os.getpid())) else 1)"]
       interval: 30s
       timeout: 10s
       retries: 3

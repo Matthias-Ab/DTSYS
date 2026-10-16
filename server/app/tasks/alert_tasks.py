@@ -1,6 +1,6 @@
 from datetime import datetime, timedelta, timezone
-import asyncio
 
+from app.tasks.async_runner import run_async
 from app.tasks.celery_app import celery_app
 from app.core.logging import get_logger
 
@@ -10,7 +10,7 @@ log = get_logger(__name__)
 @celery_app.task(name="app.tasks.alert_tasks.check_offline_devices")
 def check_offline_devices():
     """Mark devices as offline if they haven't sent a heartbeat recently."""
-    asyncio.run(_check_offline_devices_async())
+    run_async(_check_offline_devices_async())
 
 
 async def _check_offline_devices_async():

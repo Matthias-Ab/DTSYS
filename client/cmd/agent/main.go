@@ -79,7 +79,6 @@ func main() {
 		cfg.Agent.APIKey,
 		tlsConfig,
 		func(cmd transport.IncomingCommand) {
-			slog.Info("executing command", "type", cmd.CommandType, "id", cmd.CommandID)
 			if cmd.CommandType == transport.MsgTypeUpdate {
 				if cfg.Update.AutoUpdate {
 					if updated := runUpdateCommand(ctx, cfg, tlsConfig); updated {

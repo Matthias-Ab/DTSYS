@@ -1,5 +1,4 @@
 from datetime import datetime, timedelta, timezone
-import asyncio
 
 from sqlalchemy import delete, func, select
 
@@ -11,6 +10,7 @@ from app.models.command import Command
 from app.models.device import Device
 from app.models.event import Event
 from app.models.metrics import DeviceMetric
+from app.tasks.async_runner import run_async
 from app.tasks.celery_app import celery_app
 
 log = get_logger(__name__)
@@ -18,20 +18,12 @@ log = get_logger(__name__)
 
 @celery_app.task(name="app.tasks.cleanup_tasks.cleanup_old_metrics")
 def cleanup_old_metrics() -> None:
-    loop = asyncio.new_event_loop()
-    try:
-        loop.run_until_complete(run_cleanup())
-    finally:
-        loop.close()
+    run_async(run_cleanup())
 
 
 @celery_app.task(name="app.tasks.cleanup_tasks.cleanup_stale_commands")
 def cleanup_stale_commands_task() -> None:
-    loop = asyncio.new_event_loop()
-    try:
-        loop.run_until_complete(cleanup_stale_commands())
-    finally:
-        loop.close()
+    run_async(cleanup_stale_commands())
 
 
 async def run_cleanup() -> dict[str, int]:
