@@ -30,7 +30,7 @@ make dev-agent
 | Requirement | Version | Notes |
 |---|---|---|
 | Docker | 24+ | Needed for local PostgreSQL, Redis, and the full stack |
-| Go | 1.22 | Required for the agent build and tests |
+| Go | 1.26.9 | Required for the agent build and tests |
 | Node.js | 20 | Required for the frontend build and dev server |
 | Python | 3.12 | Required for the FastAPI server and Alembic |
 
