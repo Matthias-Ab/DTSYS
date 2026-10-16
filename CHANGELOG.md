@@ -13,6 +13,7 @@
 
 - **Celery tasks** (scheduled commands, offline-device alerts, cleanup, email) crashed after their first run in a worker (`another operation is in progress`) because loop-bound DB/Redis connections were reused across `asyncio.run` calls; tasks now run through `run_async`
 - **Command results** could be lost or overwritten: the command row is now committed before it is sent to the device, and status updates are conditional
+- **Duplicate command execution**: on reconnect only never-delivered (`pending`) commands are redelivered; commands already `sent` are no longer re-sent (a `reboot`/`shell` command whose result was lost used to run again on every reconnect)
 - `generate_certs.sh` now adds subjectAltName (agents and browsers reject certificates without it); beat healthcheck fixed
 
 ### Added

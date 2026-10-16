@@ -36,6 +36,24 @@ async def _ping_loop(websocket: WebSocket, device_id: uuid.UUID, interval: int =
             break
 
 
+async def _undelivered_commands(db: AsyncSession, device_id: uuid.UUID) -> list[Command]:
+    """Commands queued while the device was offline and never handed to an agent.
+
+    Deliberately NOT status "sent": a "sent" command was already delivered to a
+    previous connection and may have started (or finished with its result lost).
+    Re-sending it on reconnect would run non-idempotent commands (reboot, shell)
+    twice. Stale "sent" commands are failed by cleanup_stale_commands instead.
+    """
+    result = await db.execute(
+        select(Command).where(
+            Command.device_id == device_id,
+            Command.status == "pending",
+            Command.created_at >= datetime.now(timezone.utc) - timedelta(hours=1),
+        )
+    )
+    return list(result.scalars().all())
+
+
 async def _schedule_offline(device_id: uuid.UUID) -> None:
     try:
         await asyncio.sleep(15)
@@ -129,14 +147,8 @@ async def device_websocket(
         except Exception as exc:
             log.warning("config_send_failed", device_id=str(device_id), error=str(exc))
 
-    pending_cmds = await db.execute(
-        select(Command).where(
-            Command.device_id == device_id,
-            Command.status.in_(["pending", "sent"]),
-            Command.created_at >= datetime.now(timezone.utc) - timedelta(hours=1),
-        )
-    )
-    for cmd in pending_cmds.scalars().all():
+    pending_cmds = await _undelivered_commands(db, device_id)
+    for cmd in pending_cmds:
         delivered = await manager.send_to_device(
             device_id,
             {

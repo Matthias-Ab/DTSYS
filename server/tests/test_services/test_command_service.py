@@ -114,3 +114,23 @@ async def test_offline_device_fails_command_when_requested(db_session, monkeypat
         device.id, "shell", {"command": "echo hi"}, issued_by=None
     )
     assert sent is False and queued.status == "pending"
+
+
+@pytest.mark.asyncio
+async def test_reconnect_only_redelivers_never_delivered_commands(db_session):
+    """A 'sent' command may already have run; re-sending it would execute it twice."""
+    from datetime import datetime, timezone
+
+    from app.websocket.router import _undelivered_commands
+
+    device = Device(id=uuid.uuid4(), hostname="reconnecting", os_type="linux", api_key_hash="hash")
+    other = Device(id=uuid.uuid4(), hostname="other", os_type="linux", api_key_hash="hash")
+    db_session.add(device)
+    db_session.add(other)
+    now = datetime.now(timezone.utc)
+    for owner, status in ((device, "pending"), (device, "sent"), (device, "completed"), (device, "failed"), (other, "pending")):
+        db_session.add(Command(device_id=owner.id, command_type="shell", payload={}, status=status, created_at=now))
+
+    due = await _undelivered_commands(db_session, device.id)
+    assert [c.status for c in due] == ["pending"]
+    assert all(c.device_id == device.id for c in due)
