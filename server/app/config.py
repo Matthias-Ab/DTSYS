@@ -1,8 +1,28 @@
 from typing import Annotated
+from urllib.parse import urlsplit
 
 from pydantic import field_validator
 from pydantic_settings import BaseSettings, NoDecode, SettingsConfigDict
 from functools import lru_cache
+
+
+KNOWN_ENVIRONMENTS = {"development", "test", "testing", "staging", "production"}
+
+# Values copied from .env.example / defaults that must never reach production.
+_PLACEHOLDER_MARKERS = ("change_me", "changeme", "dev-secret", "your-domain", "example.com")
+_WEAK_PASSWORDS = {"", "dtsys", "dtsysredis", "postgres", "password", "redis", "admin", "admin123", "secret"}
+
+
+def _looks_like_placeholder(value: str) -> bool:
+    lowered = value.lower()
+    return any(marker in lowered for marker in _PLACEHOLDER_MARKERS)
+
+
+def _url_password(url: str) -> str | None:
+    try:
+        return urlsplit(url).password
+    except ValueError:
+        return None
 
 
 class Settings(BaseSettings):
@@ -83,6 +103,18 @@ class Settings(BaseSettings):
             return [item.strip() for item in text.split(",") if item.strip()]
         return value
 
+    @field_validator("ENVIRONMENT", mode="before")
+    @classmethod
+    def _validate_environment(cls, value):
+        # A typo such as "prod" or "Production" used to fall through as "not
+        # production": no safety checks, create_all on the live DB, /docs enabled.
+        normalized = str(value).strip().lower()
+        if normalized not in KNOWN_ENVIRONMENTS:
+            raise ValueError(
+                f"ENVIRONMENT={value!r} is not recognised; use one of {sorted(KNOWN_ENVIRONMENTS)}"
+            )
+        return normalized
+
     @property
     def is_production(self) -> bool:
         return self.ENVIRONMENT == "production"
@@ -94,16 +126,40 @@ class Settings(BaseSettings):
 
         problems: list[str] = []
 
-        if self.SECRET_KEY == "dev-secret-key-change-in-production" or len(self.SECRET_KEY) < 32:
+        if (
+            len(self.SECRET_KEY) < 32
+            or _looks_like_placeholder(self.SECRET_KEY)
+            or len(set(self.SECRET_KEY)) < 10
+        ):
             problems.append(
-                "SECRET_KEY is the default/placeholder value or shorter than 32 characters. "
+                "SECRET_KEY is a placeholder, too short (<32) or low-entropy. "
                 "Generate one with: python3 -c \"import secrets; print(secrets.token_hex(32))\""
             )
 
-        if self.FIRST_ADMIN_PASSWORD == "changeme":
+        if (
+            len(self.FIRST_ADMIN_PASSWORD) < 12
+            or _looks_like_placeholder(self.FIRST_ADMIN_PASSWORD)
+            or self.FIRST_ADMIN_PASSWORD.lower() in _WEAK_PASSWORDS
+        ):
             problems.append(
-                "FIRST_ADMIN_PASSWORD is still the default 'changeme'. Set a strong password before first boot."
+                "FIRST_ADMIN_PASSWORD is a placeholder or shorter than 12 characters. "
+                "Set a strong password before first boot."
             )
+
+        for label, url in (("DATABASE_URL", self.DATABASE_URL), ("REDIS_URL", self.REDIS_URL)):
+            password = _url_password(url)
+            if password is None or password.lower() in _WEAK_PASSWORDS or _looks_like_placeholder(password):
+                problems.append(
+                    f"{label} has no password or a default/placeholder password; "
+                    "set POSTGRES_PASSWORD / REDIS_PASSWORD to strong values."
+                )
+
+        if self.METRICS_TOKEN and (len(self.METRICS_TOKEN) < 16 or _looks_like_placeholder(self.METRICS_TOKEN)):
+            problems.append("METRICS_TOKEN is set but weak (<16 chars or placeholder); use a random value or leave it empty.")
+
+        for origin in self.ALLOWED_ORIGINS:
+            if _looks_like_placeholder(origin):
+                problems.append(f"ALLOWED_ORIGINS still contains a placeholder value: {origin}")
 
         localhost_origins = [
             origin
