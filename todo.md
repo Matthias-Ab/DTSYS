@@ -26,7 +26,8 @@ Findings from a quick repo scan (not a line-by-line audit). Items marked "verify
 - [x] Prometheus `/metrics` endpoint (bearer `METRICS_TOKEN`; disabled when unset)
 - [ ] OpenTelemetry tracing
 - [ ] Sentry (or equivalent) error reporting
-- [ ] HA / horizontal scaling: multiple server replicas, WebSocket fan-out via Redis
+- [x] Multi-worker WebSocket routing via Redis (presence + pub/sub); verified 16/16 commands across 2 uvicorn workers
+- [ ] Horizontal scaling beyond one host (admin live-connections view and activity streams are still per-process)
 - [ ] Scheduled backups and restore testing (currently shell scripts only)
 - [x] Repo hygiene: `go1.22.4.linux-amd64.tar.gz`, `dist/`, `.codex` were already gitignored and untracked
 

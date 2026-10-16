@@ -64,6 +64,6 @@ async def metrics(request: Request):
         alerts = {str(severity): int(count) for severity, count in alert_rows.all()}
 
     return PlainTextResponse(
-        render_metrics(devices, alerts, manager.connection_count),
+        render_metrics(devices, alerts, await manager.cluster_connection_count()),
         media_type="text/plain; version=0.0.4",
     )

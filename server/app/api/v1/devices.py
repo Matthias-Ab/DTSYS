@@ -135,6 +135,7 @@ async def list_devices(
     total = await service.count_devices(tag=tag, search=search, org_id=current_org_id)
     response.headers["X-Total-Count"] = str(total)
     devices = await service.list_devices(skip=skip, limit=limit, tag=tag, search=search, org_id=current_org_id)
+    online_ids = await manager.online_among([d.id for d in devices])
     return [
         {
             "id": str(d.id),
@@ -161,7 +162,7 @@ async def list_devices(
             "maintenance_until": d.maintenance_until.isoformat() if d.maintenance_until else None,
             "maintenance_reason": d.maintenance_reason,
             "agent_version": d.agent_version,
-            "is_online": manager.is_connected(d.id),
+            "is_online": d.id in online_ids,
         }
         for d in devices
     ]
@@ -227,7 +228,7 @@ async def get_device(
         "maintenance_until": d.maintenance_until.isoformat() if d.maintenance_until else None,
         "maintenance_reason": d.maintenance_reason,
         "agent_version": d.agent_version,
-        "is_online": manager.is_connected(d.id),
+        "is_online": await manager.is_online(d.id),
     }
 
 
@@ -354,7 +355,7 @@ async def update_device_config(
     await db.commit()
 
     sent = False
-    if manager.is_connected(device_id):
+    if await manager.is_online(device_id):
         sent = await manager.send_to_device(
             device_id,
             {"type": ServerMessageType.CONFIG_UPDATE, "data": payload},
@@ -418,7 +419,7 @@ async def request_screenshot(
     device = await _get_device_for_org(db, device_id, current_org_id)
     if device.is_revoked:
         raise HTTPException(status_code=404, detail="Device not found")
-    if not manager.is_connected(device_id):
+    if not await manager.is_online(device_id):
         raise HTTPException(status_code=409, detail="Device is offline")
 
     await manager.send_to_device(

@@ -57,7 +57,9 @@ async def lifespan(app: FastAPI):
         await cleanup_stale_commands()
     except Exception:
         pass
+    await manager.start()
     yield
+    await manager.stop()
     await engine.dispose()
 
 
@@ -156,7 +158,7 @@ async def health():
         "version": VERSION,
         "db": db_status,
         "redis": redis_status,
-        "devices_online": manager.connection_count,
+        "devices_online": await manager.cluster_connection_count(),
         "uptime_secs": int(time.monotonic() - START_TIME),
     }
 

@@ -69,7 +69,6 @@ async def dispatch_command(
         device_id=str(device_id),
         command_type=body.command_type,
         payload=body.payload,
-        connected=manager.is_connected(device.id),
         sent=sent,
     )
     audit_details = {"command_type": body.command_type}

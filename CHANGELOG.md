@@ -1,5 +1,18 @@
 # Changelog
 
+## Unreleased
+
+### Fixed
+- **Production boot**: containers now load `.env`; `ALLOWED_ORIGINS` accepts a plain value, comma-separated list or JSON array (previously the server could not start in production)
+- **Multi-worker WebSockets**: device connections are now tracked cluster-wide via Redis (presence keys + pub/sub), so API requests and Celery scheduled commands reach agents connected to any worker
+- **Offline command queue**: commands queued while a device was offline are delivered when it reconnects (only `sent` ones were redelivered before)
+- **Agent**: command timeouts now kill the whole process group (a timed-out shell no longer hangs on its child); updater refuses downloads from a different host/scheme than the server
+- **CSV exports** neutralise spreadsheet formula injection (audit export and frontend exports)
+
+### Added
+- TOTP multi-factor authentication (web + mobile), `/metrics` Prometheus endpoint (`METRICS_TOKEN`), ed25519-signed agent releases (`release-sign`), vitest frontend tests
+- `scripts/setup-prod.sh` rewritten: hidden prompts, auto-generated secrets, safe `.env` writes, https enforcement
+
 ## v1.3.0 — 2026-04-14
 
 ### Security

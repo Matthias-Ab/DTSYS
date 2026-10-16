@@ -39,7 +39,7 @@ async def _ping_loop(websocket: WebSocket, device_id: uuid.UUID, interval: int =
 async def _schedule_offline(device_id: uuid.UUID) -> None:
     try:
         await asyncio.sleep(15)
-        if manager.is_connected(device_id):
+        if await manager.is_online(device_id):
             return
         async with AsyncSessionLocal() as session:
             await session.execute(
@@ -132,12 +132,12 @@ async def device_websocket(
     pending_cmds = await db.execute(
         select(Command).where(
             Command.device_id == device_id,
-            Command.status == "sent",
+            Command.status.in_(["pending", "sent"]),
             Command.created_at >= datetime.now(timezone.utc) - timedelta(hours=1),
         )
     )
     for cmd in pending_cmds.scalars().all():
-        await manager.send_to_device(
+        delivered = await manager.send_to_device(
             device_id,
             {
                 "type": ServerMessageType.COMMAND,
@@ -148,6 +148,10 @@ async def device_websocket(
                 },
             },
         )
+        # Commands queued while the device was offline stay "pending" until now.
+        if delivered and cmd.status == "pending":
+            cmd.status = "sent"
+    await db.commit()
 
     handler = MessageHandler(db, redis)
     ping_task = asyncio.create_task(_ping_loop(websocket, device_id))
