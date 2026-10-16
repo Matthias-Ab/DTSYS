@@ -21,11 +21,20 @@ api.interceptors.request.use((config) => {
 // their own /auth/refresh call.
 let refreshPromise: Promise<string> | null = null
 
+// A 401 from the login endpoint means "bad credentials" or "MFA code required",
+// not "session expired". Treating it as an expired session triggered a refresh
+// attempt, a logout and a hard reload of /login, which wiped the MFA code step.
+const NO_REFRESH_URLS = /^\/?auth\/(login|refresh)(\?|$)/
+
+export function shouldAttemptRefresh(url: string | undefined): boolean {
+  return !NO_REFRESH_URLS.test(url ?? '')
+}
+
 api.interceptors.response.use(
   (res) => res,
   async (err) => {
     const originalRequest = err.config
-    if (err.response?.status === 401 && originalRequest && !originalRequest._retried) {
+    if (err.response?.status === 401 && originalRequest && !originalRequest._retried && shouldAttemptRefresh(originalRequest.url)) {
       originalRequest._retried = true
       try {
         if (!refreshPromise) {
@@ -44,7 +53,9 @@ api.interceptors.response.use(
         return api.request(originalRequest)
       } catch {
         useAuthStore.getState().logout()
-        window.location.href = '/login'
+        if (window.location.pathname !== '/login') {
+          window.location.href = '/login'
+        }
       }
     }
     return Promise.reject(err)
