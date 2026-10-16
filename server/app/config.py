@@ -1,4 +1,7 @@
-from pydantic_settings import BaseSettings, SettingsConfigDict
+from typing import Annotated
+
+from pydantic import field_validator
+from pydantic_settings import BaseSettings, NoDecode, SettingsConfigDict
 from functools import lru_cache
 
 
@@ -22,7 +25,8 @@ class Settings(BaseSettings):
     APP_NAME: str = "DTSYS"
     BASE_URL: str = "http://localhost:8000"
     API_V1_PREFIX: str = "/api/v1"
-    ALLOWED_ORIGINS: list[str] = ["http://localhost:3000"]
+    # Accepts a comma-separated list ("https://a.com,https://b.com") or a JSON array.
+    ALLOWED_ORIGINS: Annotated[list[str], NoDecode] = ["http://localhost:3000"]
 
     # Device heartbeat: if not seen in this many seconds, mark offline
     DEVICE_OFFLINE_THRESHOLD_SECONDS: int = 120
@@ -66,6 +70,18 @@ class Settings(BaseSettings):
     EVENT_RETENTION_DAYS: int = 365
     COMMAND_RETENTION_DAYS: int = 180
     ALERT_RETENTION_DAYS: int = 365
+
+    @field_validator("ALLOWED_ORIGINS", mode="before")
+    @classmethod
+    def _parse_origins(cls, value):
+        if isinstance(value, str):
+            text = value.strip()
+            if text.startswith("["):
+                import json
+
+                return json.loads(text)
+            return [item.strip() for item in text.split(",") if item.strip()]
+        return value
 
     @property
     def is_production(self) -> bool:

@@ -16,6 +16,7 @@ set -a
 source .env
 set +a
 
+# Defaults to the dev stack; production: BACKUP_COMPOSE_FILE=docker-compose.prod.yml
 COMPOSE_FILE="${BACKUP_COMPOSE_FILE:-docker-compose.dev.yml}"
 BACKUP_DIR="${BACKUP_DIR:-./backups}"
 mkdir -p "$BACKUP_DIR"
