@@ -5,7 +5,7 @@ import asyncio
 import json
 import secrets
 import uuid
-from datetime import datetime, timezone
+from datetime import datetime
 from typing import Annotated, AsyncGenerator
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Request
@@ -16,7 +16,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.redis import get_redis
 from app.db.session import get_db, AsyncSessionLocal
-from app.dependencies import get_current_org_id, get_current_user, require_admin
+from app.dependencies import require_admin
 from app.models.audit_log import AuditLog
 from app.models.user import User
 

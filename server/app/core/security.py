@@ -4,7 +4,8 @@ from typing import Any
 
 import bcrypt
 from fastapi import Response
-from jose import JWTError, jwt
+import jwt
+from jwt import PyJWTError
 
 from app.config import get_settings
 
@@ -74,5 +75,5 @@ def create_refresh_token(subject: str | Any) -> str:
 def decode_token(token: str) -> dict:
     try:
         return jwt.decode(token, settings.SECRET_KEY, algorithms=[ALGORITHM])
-    except JWTError as e:
+    except PyJWTError as e:
         raise ValueError(f"Invalid token: {e}")

@@ -164,7 +164,6 @@ async def list_results(
     non_compliant_only: bool = False,
 ):
     """List compliance results filtered to the org's devices."""
-    from sqlalchemy import join
 
     query = (
         select(ComplianceResult, CompliancePolicy.name, Device.hostname)

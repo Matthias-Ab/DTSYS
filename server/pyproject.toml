@@ -12,7 +12,8 @@ dependencies = [
     "pydantic-settings>=2.3.0",
     "redis[hiredis]>=5.0.0",
     "celery[redis]>=5.4.0",
-    "python-jose[cryptography]>=3.3.0",
+    "pyjwt>=2.10.0",
+    "cryptography>=50.0.0",
     "passlib[bcrypt]>=1.7.4",
     "bcrypt>=4.0.0",
     "slowapi>=0.1.9",
@@ -41,3 +42,9 @@ build-backend = "hatchling.build"
 
 [tool.hatch.build.targets.wheel]
 packages = ["app"]
+
+[tool.ruff.lint]
+# Correctness-focused default. Style rules (import sorting, pyupgrade, blind-except)
+# are intentionally not enforced: they produced ~190 findings on a newer ruff than
+# the one in uv.lock and none of them are bugs.
+select = ["E4", "E7", "E9", "F"]

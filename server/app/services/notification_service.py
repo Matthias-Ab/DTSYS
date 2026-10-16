@@ -68,7 +68,7 @@ class NotificationService:
         """Send Expo push notifications to all users in this org."""
         import httpx
         from datetime import datetime, timezone
-        from sqlalchemy import select, update
+        from sqlalchemy import select
         from app.models.push_token import PushToken
         from app.models.organization import OrganizationMember
 

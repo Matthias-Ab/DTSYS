@@ -9,7 +9,6 @@ from __future__ import annotations
 
 from alembic import op
 import sqlalchemy as sa
-from sqlalchemy.dialects import postgresql
 
 revision = 'e8f9a0b1c2d3'
 down_revision = 'd7f8e9a0b1c2'

@@ -14,7 +14,6 @@ from app.core.exceptions import ForbiddenError
 from app.services.audit_service import log_action
 from app.services.command_service import CommandService
 from app.core.logging import get_logger
-from app.websocket.manager import manager
 from app.core.rate_limit import limiter
 
 router = APIRouter(prefix="/devices/{device_id}/commands", tags=["commands"])
@@ -54,7 +53,7 @@ async def dispatch_command(
             f"'{body.command_type}' commands can only be dispatched by an org admin"
         )
 
-    device = await _get_device_for_org(db, device_id, current_org_id)
+    await _get_device_for_org(db, device_id, current_org_id)
     service = CommandService(db)
     cmd, sent = await service.dispatch_command(
         device_id=device_id,
