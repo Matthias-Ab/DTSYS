@@ -16,6 +16,26 @@ services:
       timeout: 5s
       retries: 5
 
+  # Scheduled database dumps into the `backups` volume. Copy them off the host
+  # (e.g. `docker compose -f docker-compose.prod.yml cp backup:/backups ./backups`)
+  # and test restores with scripts/restore.sh.
+  backup:
+    image: timescale/timescaledb:2.17.2-pg16
+    restart: always
+    depends_on:
+      postgres:
+        condition: service_healthy
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-dtsys}
+      POSTGRES_DB: ${POSTGRES_DB:-dtsys}
+      PGPASSWORD: ${POSTGRES_PASSWORD}
+      BACKUP_INTERVAL_HOURS: ${BACKUP_INTERVAL_HOURS:-24}
+      BACKUP_RETENTION_DAYS: ${BACKUP_RETENTION_DAYS:-14}
+    entrypoint: ["/bin/sh", "/backup-loop.sh"]
+    volumes:
+      - ./scripts/backup-loop.sh:/backup-loop.sh:ro
+      - backups:/backups
+
   redis:
     image: redis:7-alpine
     restart: always
@@ -41,6 +61,7 @@ services:
       FIRST_ADMIN_PASSWORD: ${FIRST_ADMIN_PASSWORD:?FIRST_ADMIN_PASSWORD required}
       ENVIRONMENT: production
       ENV: production
+      SCRIPTS_DIR: /opt/dtsys/scripts
     depends_on:
       postgres:
         condition: service_healthy
@@ -50,7 +71,10 @@ services:
       - "8000"
     volumes:
       - ./dist:/app/dist:ro
-    command: uvicorn app.main:app --host 0.0.0.0 --port 8000 --workers 2
+      - ./scripts:/opt/dtsys/scripts:ro
+    # The API is only reachable through nginx (expose, not ports), so trusting its
+    # X-Forwarded-For is safe and gives rate limits/audit logs the real client IP.
+    command: uvicorn app.main:app --host 0.0.0.0 --port 8000 --workers 2 --proxy-headers --forwarded-allow-ips '*'
     healthcheck:
       test: ["CMD-SHELL", "python -c \"import urllib.request; urllib.request.urlopen('http://localhost:8000/health').read()\""]
       interval: 15s
@@ -137,3 +161,4 @@ services:
 volumes:
   postgres_data:
   redis_data:
+  backups:

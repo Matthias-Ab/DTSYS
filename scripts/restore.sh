@@ -1,6 +1,8 @@
 #!/usr/bin/env bash
 # Usage: bash scripts/restore.sh <backup-file> [--yes]
 # Restores a DTSYS database backup produced by scripts/backup.sh.
+# Backups made by the `backup` compose service live in its volume; fetch one with
+#   docker compose -f docker-compose.prod.yml cp backup:/backups ./backups
 # Accepts either a plain .sql.gz or a GPG-encrypted .sql.gz.gpg (will prompt
 # for BACKUP_ENCRYPTION_PASSPHRASE or the gpg passphrase interactively).
 #
@@ -63,14 +65,22 @@ if ! gzip -t "$SQL_GZ"; then
   exit 1
 fi
 
-echo "Recreating database '$POSTGRES_DB'..."
-docker compose -f "$COMPOSE_FILE" exec -T postgres \
-    psql -U "$POSTGRES_USER" -d postgres \
-    -c "DROP DATABASE IF EXISTS \"$POSTGRES_DB\";" \
+PSQL=(docker compose -f "$COMPOSE_FILE" exec -T postgres psql -v ON_ERROR_STOP=1 -U "$POSTGRES_USER")
+
+echo "Recreating database '$POSTGRES_DB' (open connections are terminated)..."
+"${PSQL[@]}" -d postgres \
+    -c "DROP DATABASE IF EXISTS \"$POSTGRES_DB\" WITH (FORCE);" \
     -c "CREATE DATABASE \"$POSTGRES_DB\" OWNER \"$POSTGRES_USER\";"
+
+# device_metrics is a TimescaleDB hypertable: the extension must be in
+# "restoring" mode while the dump is loaded, otherwise the load fails or
+# leaves the hypertable metadata inconsistent.
+"${PSQL[@]}" -d "$POSTGRES_DB" -c "CREATE EXTENSION IF NOT EXISTS timescaledb;" -c "SELECT timescaledb_pre_restore();"
 
 echo "Restoring from $BACKUP_FILE..."
 gunzip -c "$SQL_GZ" | docker compose -f "$COMPOSE_FILE" exec -T postgres \
     psql -U "$POSTGRES_USER" -d "$POSTGRES_DB"
+
+"${PSQL[@]}" -d "$POSTGRES_DB" -c "SELECT timescaledb_post_restore();"
 
 echo "Restore complete."

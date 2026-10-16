@@ -7,9 +7,12 @@
 - **Multi-worker WebSockets**: device connections are now tracked cluster-wide via Redis (presence keys + pub/sub), so API requests and Celery scheduled commands reach agents connected to any worker
 - **Offline command queue**: commands queued while a device was offline are delivered when it reconnects (only `sent` ones were redelivered before)
 - **Agent**: command timeouts now kill the whole process group (a timed-out shell no longer hangs on its child); updater refuses downloads from a different host/scheme than the server
+- **nginx (production)**: real client IP forwarded (rate limits and audit log previously saw only nginx's address, and a client-supplied `X-Forwarded-For` was trusted); security headers + HSTS + CSP on the SPA; `/health`, `/metrics` and agent install scripts routed to the API; upstreams re-resolved so redeploys no longer cause 502s
+- **Status page** and **agent installer** URLs now work behind nginx (`/api/v1/status`; scripts mounted into the server container)
 - **CSV exports** neutralise spreadsheet formula injection (audit export and frontend exports)
 
 ### Added
+- Scheduled database backups (`backup` service in `docker-compose.prod.yml`); `restore.sh` fixed for TimescaleDB and verified with a restore drill
 - TOTP multi-factor authentication (web + mobile), `/metrics` Prometheus endpoint (`METRICS_TOKEN`), ed25519-signed agent releases (`release-sign`), vitest frontend tests
 - `scripts/setup-prod.sh` rewritten: hidden prompts, auto-generated secrets, safe `.env` writes, https enforcement
 

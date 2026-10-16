@@ -14,7 +14,7 @@ export default function Status() {
   const { data } = useQuery({
     queryKey: ['public-status'],
     queryFn: () =>
-      fetch('/status', { headers: { Accept: 'application/json' } }).then((response) => response.json() as Promise<StatusPayload>),
+      fetch('/api/v1/status', { headers: { Accept: 'application/json' } }).then((response) => response.json() as Promise<StatusPayload>),
     refetchInterval: 30_000,
   })
 

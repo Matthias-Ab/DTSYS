@@ -28,7 +28,9 @@ Findings from a quick repo scan (not a line-by-line audit). Items marked "verify
 - [ ] Sentry (or equivalent) error reporting
 - [x] Multi-worker WebSocket routing via Redis (presence + pub/sub); verified 16/16 commands across 2 uvicorn workers
 - [ ] Horizontal scaling beyond one host (admin live-connections view and activity streams are still per-process)
-- [ ] Scheduled backups and restore testing (currently shell scripts only)
+- [x] Scheduled backups (`backup` compose service, daily, 14-day retention) and a verified restore drill (`scripts/restore.sh` now handles TimescaleDB pre/post restore and open connections)
+- [ ] Offsite/encrypted backup copy (the backups volume lives on the same host as the database)
+- [ ] `device_metrics` is a plain table, not a TimescaleDB hypertable (migration `35e7b29c0008` silently fails because the PK lacks `time`); convert after go-live if metrics volume grows
 - [x] Repo hygiene: `go1.22.4.linux-amd64.tar.gz`, `dist/`, `.codex` were already gitignored and untracked
 
 ## Device Management Features

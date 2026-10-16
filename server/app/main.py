@@ -164,6 +164,7 @@ async def health():
 
 
 @app.get("/status")
+@app.get("/api/v1/status")
 async def public_status(request: Request):
     async with AsyncSessionLocal() as db:
         total_devices = int(await db.scalar(select(func.count()).select_from(Device).where(~Device.is_revoked)) or 0)
