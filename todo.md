@@ -8,7 +8,8 @@ Findings from a quick repo scan (not a line-by-line audit). Items marked "verify
 - [ ] Mobile app tests
 - [x] Server tests: compliance rule engine, audit (service, admin gating, stream ticket, CSV export)
 - [ ] Server tests still missing: notifications, scheduled commands, organizations, software updates, WebSocket layer
-- [ ] Go agent tests: executor, updater, software collectors (only NTP, hardware, messages covered)
+- [x] Go agent tests: executor and updater
+- [ ] Go agent tests: software collectors
 - [ ] End-to-end test: agent -> server -> dashboard
 
 ## Security & Identity
@@ -17,7 +18,8 @@ Findings from a quick repo scan (not a line-by-line audit). Items marked "verify
 - [ ] MFA recovery codes and optional admin-enforced MFA
 - [ ] OIDC / SAML SSO (only LDAP exists today)
 - [ ] Fine-grained RBAC (verify; basic roles and org scoping appear to exist)
-- [ ] Signed agent releases / updater verification (verify)
+- [x] Signed agent releases: ed25519 via `client/cmd/release-sign`, public key embedded with `-X .../updater.PublicKey`, `build-release.sh` signs when `RELEASE_SIGNING_KEY` is set, server serves `signature`
+- [ ] Signed releases: enforce in CI/release workflow (store key as a secret), also verify in `install-agent.sh`/`.ps1` and the MSI, add key rotation story
 - [ ] Remote command signing or allowlisting (verify)
 
 ## Observability & Operations

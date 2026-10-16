@@ -25,6 +25,7 @@ async def get_agent_version(
         "download_url": f"{base_url}/api/v1/agent/download?arch={arch}&platform={platform}",
         "changelog_url": f"{base_url}/CHANGELOG.md",
         "sha256": _read_binary_checksum(platform, arch),
+        "signature": _read_binary_signature(platform, arch),
         "required": False,
     }
 
@@ -67,5 +68,19 @@ def _read_binary_checksum(platform: str, arch: str) -> str | None:
     try:
         digest = checksum_path.read_text(encoding="utf-8").strip().split()[0]
         return digest or None
+    except Exception:
+        return None
+
+
+def _read_binary_signature(platform: str, arch: str) -> str | None:
+    """Return the detached ed25519 release signature (base64) produced by release-sign."""
+    suffix = ".exe" if platform == "windows" else ""
+    filename = f"dtsys-agent-{platform}-{arch}{suffix}"
+    dist_dir = Path(os.getenv("AGENT_DIST_DIR", _DEFAULT_DIST))
+    sig_path = dist_dir / f"{filename}.sig"
+    if not sig_path.exists():
+        return None
+    try:
+        return sig_path.read_text(encoding="utf-8").strip() or None
     except Exception:
         return None

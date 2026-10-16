@@ -47,3 +47,7 @@ nginx/ssl/*.pem
 # OS
 .DS_Store
 Thumbs.db
+
+# Release signing keys (secret key must never be committed)
+keys/
+release.key
