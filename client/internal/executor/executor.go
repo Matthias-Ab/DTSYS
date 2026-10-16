@@ -117,6 +117,7 @@ func runShell(ctx context.Context, payload map[string]interface{}) ([]byte, int,
 	default:
 		cmd = exec.CommandContext(ctx, "/bin/sh", "-c", command)
 	}
+	confine(cmd)
 
 	var buf bytes.Buffer
 	cmd.Stdout = &buf

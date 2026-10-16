@@ -16,12 +16,21 @@ import (
 	"runtime"
 	"strconv"
 	"strings"
+
+	"github.com/dtsys/agent/internal/releasesig"
 )
+
+// PublicKey is the base64 ed25519 release-signing public key, injected at build
+// time with -ldflags "-X github.com/dtsys/agent/internal/updater.PublicKey=...".
+// When set, updates must carry a valid signature. When empty (unsigned dev
+// builds) the updater falls back to checksum-only verification.
+var PublicKey string
 
 type versionResponse struct {
 	Version     string `json:"version"`
 	DownloadURL string `json:"download_url"`
 	SHA256      string `json:"sha256"`
+	Signature   string `json:"signature"`
 }
 
 // CheckAndUpdate downloads and stages a newer agent binary when one is available.
@@ -80,6 +89,10 @@ func CheckAndUpdate(ctx context.Context, serverURL, currentVersion, deviceID, ap
 		return false, fmt.Errorf("server did not provide a valid sha256 checksum for the update; refusing to install an unverified binary")
 	}
 
+	if PublicKey != "" && strings.TrimSpace(payload.Signature) == "" {
+		return false, fmt.Errorf("server did not provide a release signature; refusing to install an unsigned binary")
+	}
+
 	downloadURL, err := resolveDownloadURL(endpoint, payload.DownloadURL)
 	if err != nil {
 		return false, err
@@ -114,6 +127,13 @@ func CheckAndUpdate(ctx context.Context, serverURL, currentVersion, deviceID, ap
 	if subtle.ConstantTimeCompare([]byte(actualSHA256), []byte(expectedSHA256)) != 1 {
 		_ = os.Remove(tempPath)
 		return false, fmt.Errorf("downloaded update failed checksum verification: expected %s, got %s", expectedSHA256, actualSHA256)
+	}
+	if PublicKey != "" {
+		// Verify against the digest we computed ourselves, not the server's claim.
+		if err := releasesig.Verify(PublicKey, payload.Version, runtime.GOOS, runtime.GOARCH, actualSHA256, payload.Signature); err != nil {
+			_ = os.Remove(tempPath)
+			return false, fmt.Errorf("refusing update: %w", err)
+		}
 	}
 	if err := os.Chmod(tempPath, 0o755); err != nil && runtime.GOOS != "windows" {
 		_ = os.Remove(tempPath)
@@ -163,7 +183,16 @@ func resolveDownloadURL(baseURL, raw string) (string, error) {
 	if err != nil {
 		return "", err
 	}
-	return parsedBase.ResolveReference(parsedURL).String(), nil
+	resolved := parsedBase.ResolveReference(parsedURL)
+	// The agent's API key is sent to the download URL, so never follow the
+	// server's response to a different host, or to a weaker scheme.
+	if !strings.EqualFold(resolved.Host, parsedBase.Host) {
+		return "", fmt.Errorf("refusing update download from different host %q (server host is %q)", resolved.Host, parsedBase.Host)
+	}
+	if resolved.Scheme != parsedBase.Scheme {
+		return "", fmt.Errorf("refusing update download with scheme %q (server uses %q)", resolved.Scheme, parsedBase.Scheme)
+	}
+	return resolved.String(), nil
 }
 
 // downloadBinary streams the response body into file while hashing it, and
