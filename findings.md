@@ -55,14 +55,14 @@ The earlier score (68) was based on what I had *run*: the happy path works. The 
 - [ ] **SRV-09 ✔ Compliance evaluation always crashes.** `compliance_service.py:124` orders by `DeviceMetric.timestamp`; the column is `time` → `AttributeError`, `POST /compliance/evaluate` returns 500. Also: no scheduled evaluation task exists, rules are unvalidated, unknown rule types silently pass.
 
 ### Web / auth
-- [ ] **WEB-01 ✔ MFA login is likely broken in the browser (my bug).** `frontend/src/api/client.ts:24-48` treats every 401 as an expired session — including `/auth/login`'s "MFA code required" — tries `/auth/refresh`, fails, then `window.location.href='/login'` (hard reload) which wipes the OTP step. *Fix:* skip refresh/redirect for `/auth/*` URLs; use router navigation.
+- [x] **WEB-01 ✔ FIXED — MFA login is likely broken in the browser (my bug).** `frontend/src/api/client.ts:24-48` treats every 401 as an expired session — including `/auth/login`'s "MFA code required" — tries `/auth/refresh`, fails, then `window.location.href='/login'` (hard reload) which wipes the OTP step. *Fix:* skip refresh/redirect for `/auth/*` URLs; use router navigation.
 
 ### Deploy / release
 - [ ] **OPS-01 ○ No automated migrations; first boot and upgrades race alembic.** `main.py:55` `_seed_admin` runs in lifespan with no try/except against a possibly missing schema; `restart: always` loops; `setup-prod.sh` runs alembic against a restarting container. (Partly observed during my test; not reproduced as a hard crash.) *Fix:* one-shot `migrate` service with `service_completed_successfully` dependency.
-- [ ] **OPS-02 ○ CI cannot go green and server tests never run.** `ci.yml:77` `uv pip install --system` ignores `uv.lock` (ruff 0.17.1 → 190 lint errors vs 10 with the locked 0.15.22); `ci.yml:80,88` call `.venv/bin/ruff|pytest` which don't exist. *Fix:* `uv sync --locked --extra dev`, `uv run ruff/pytest`, add `[tool.ruff.lint] select=["E4","E7","E9","F"]`, fix the 10 F-errors.
-- [ ] **OPS-03 ○ Go toolchain vulnerable; release pipeline unsigned and never run for v1.3.0.** 9 stdlib vulns, all "fixed in go1.26.9" (no 1.25 backport); `release.yml` pins 1.25.9. Release builds never get `RELEASE_SIGNING_KEY` (no secret set); `gh release list` shows only v1.2.0. *Fix:* `go 1.26.9` in `go.mod` + both workflows, pin govulncheck, add the signing secret, gate release on tests.
-- [ ] **OPS-04 ○ Sample `.env.example` passes the production safety check.** `SECRET_KEY=change_me_secret_key_at_least_32_chars` is 39 chars so it is accepted; placeholder DB/Redis passwords are never checked. *Fix:* reject `change_me*` values and placeholder passwords.
-- [ ] **OPS-05 ○ Unrecognized `ENVIRONMENT` silently disables the safety check.** `config.py` compares `== "production"`; `prod`/`Production` runs dev mode (`create_all` on the prod DB, `/docs`, dev secret). *Fix:* fail on unknown values.
+- [x] **OPS-02 ○ FIXED (pending CI confirmation) — CI cannot go green and server tests never run.** `ci.yml:77` `uv pip install --system` ignores `uv.lock` (ruff 0.17.1 → 190 lint errors vs 10 with the locked 0.15.22); `ci.yml:80,88` call `.venv/bin/ruff|pytest` which don't exist. *Fix:* `uv sync --locked --extra dev`, `uv run ruff/pytest`, add `[tool.ruff.lint] select=["E4","E7","E9","F"]`, fix the 10 F-errors.
+- [~] **OPS-03 ○ PARTIALLY FIXED — Go toolchain vulnerable; release pipeline unsigned and never run for v1.3.0.** 9 stdlib vulns, all "fixed in go1.26.9" (no 1.25 backport); `release.yml` pins 1.25.9. Release builds never get `RELEASE_SIGNING_KEY` (no secret set); `gh release list` shows only v1.2.0. *Fix:* `go 1.26.9` in `go.mod` + both workflows, pin govulncheck, add the signing secret, gate release on tests.
+- [x] **OPS-04 ○ FIXED — Sample `.env.example` passes the production safety check.** `SECRET_KEY=change_me_secret_key_at_least_32_chars` is 39 chars so it is accepted; placeholder DB/Redis passwords are never checked. *Fix:* reject `change_me*` values and placeholder passwords.
+- [x] **OPS-05 ○ FIXED — Unrecognized `ENVIRONMENT` silently disables the safety check.** `config.py` compares `== "production"`; `prod`/`Production` runs dev mode (`create_all` on the prod DB, `/docs`, dev secret). *Fix:* fail on unknown values.
 
 ### Agent / clients
 - [ ] **AGT-01 ✔ Windows MSI never writes `agent.toml`.** `dtsys-agent.wxs:72-81`: `SetProperty Id="WriteConfigCmd"` does not match action `WriteConfigExec`; the action only runs `echo [DTSYS_SERVER]`; `Return="ignore"` hides errors; even if wired, it writes flat `server_url=` keys but the agent needs `[server] url=`. Installed service loops on "config not found". The MSI job has never run in CI.
@@ -72,6 +72,15 @@ The earlier score (68) was based on what I had *run*: the happy path works. The 
 - [ ] **MOB-02 ○ Mobile never registers for push notifications** (no `expo-notifications`, no `push-tokens` call) although the server fully implements sending — alerts never reach on-call phones.
 
 ---
+
+### Gate-work status (2026-10-16, uncommitted until pushed and CI-confirmed)
+- **WEB-01 fixed:** login endpoint 401s no longer trigger refresh/logout/hard reload (`frontend/src/api/client.ts`); 4 new tests.
+- **OPS-04/05 fixed:** `assert_production_safe` now rejects placeholder/low-entropy `SECRET_KEY`, short or placeholder admin password, default/empty DB and Redis passwords, weak `METRICS_TOKEN`, placeholder origins; unknown `ENVIRONMENT` values fail at startup. Tests cover each value shipped in `.env.example`.
+- **OPS-02 fixed:** CI server job now `uv sync --locked --extra dev` + `uv run ruff/pytest`; ruff scoped to `E4,E7,E9,F` and its 10 real findings fixed; `pip-audit` runs on the locked set.
+- **OPS-03 partly fixed:** Go 1.26.9 in `go.mod` and both workflows, `govulncheck` pinned to v1.9.0 and reports 0 affecting vulnerabilities; **found and fixed a side effect — `golang.org/x/sys` v0.21.0 broke `linux/arm64` builds on Go 1.26 (CI cross-compile and release would have failed); bumped to v0.49.0.** Still open: signing secret in CI, MSI ignoring signed binary, release gated on tests, v1.3.0 release never cut.
+- **New dependency fixes:** replaced unmaintained `python-jose` (+`ecdsa`, `rsa`) with `PyJWT` (HS256 only; same token format, existing sessions stay valid) and bumped `cryptography` to ≥50 — `pip-audit` now clean (was 5 findings); 6 new token tests (tamper, wrong key, expiry, `alg=none`).
+- **WEB-06 partly fixed:** `axios` high-severity resolved (1.20.0). Remaining: `react-router-dom` moderate (open redirect with user-controlled targets — none in this app; fix needs a v7 major upgrade). CI audit now uses `--omit=dev` and exits 0.
+- **Note:** the earlier local test stack uses `METRICS_TOKEN=scrape-token` (12 chars), which the new production check rejects — use a ≥16-char token when redeploying it.
 
 ## 4. P1 — High
 

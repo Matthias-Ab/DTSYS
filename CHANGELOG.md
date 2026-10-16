@@ -3,6 +3,10 @@
 ## Unreleased
 
 ### Fixed
+- **MFA login in the web UI**: a 401 from the login endpoint no longer triggers a refresh/logout/hard reload that wiped the code-entry step
+- **Production safety checks** now reject placeholder secrets from `.env.example` (SECRET_KEY, admin/DB/Redis passwords, metrics token, origins) and unknown `ENVIRONMENT` values
+- **Dependencies**: replaced `python-jose` with `PyJWT`, `cryptography` >= 50, Go 1.26.9 (stdlib CVEs), `golang.org/x/sys` bump (linux/arm64 build), `axios` high-severity fix
+- **CI**: server job uses the lockfile and actually runs lint + tests; ruff scoped to correctness rules; `govulncheck` pinned
 - **Production boot**: containers now load `.env`; `ALLOWED_ORIGINS` accepts a plain value, comma-separated list or JSON array (previously the server could not start in production)
 - **Multi-worker WebSockets**: device connections are now tracked cluster-wide via Redis (presence keys + pub/sub), so API requests and Celery scheduled commands reach agents connected to any worker
 - **Offline command queue**: commands queued while a device was offline are delivered when it reconnects (only `sent` ones were redelivered before)
