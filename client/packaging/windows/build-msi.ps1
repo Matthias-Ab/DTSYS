@@ -57,7 +57,17 @@ Push-Location $ClientRoot
 $env:GOOS   = "windows"
 $env:GOARCH = "amd64"
 $env:CGO_ENABLED = "0"
-go build -ldflags "-X main.Version=$Version -s -w" -o (Join-Path $StagingDir "dtsys-agent.exe") ./cmd/agent
+# The version lives in internal/version (the old -X main.Version flag matched no symbol,
+# so every MSI reported the default version). The release public key must be embedded too,
+# otherwise MSI-installed agents accept unsigned updates.
+$ModulePath = "github.com/dtsys/agent/internal"
+$Ldflags = "-s -w -X $ModulePath/version.Version=$Version -X $ModulePath/version.BuildDate=$(Get-Date -Format 'yyyy-MM-dd')"
+if ($env:RELEASE_PUBLIC_KEY) {
+    $Ldflags += " -X $ModulePath/updater.PublicKey=$($env:RELEASE_PUBLIC_KEY)"
+} else {
+    Write-Warning "RELEASE_PUBLIC_KEY not set: building an UNSIGNED-update agent (checksum-only self-update)."
+}
+go build -ldflags $Ldflags -o (Join-Path $StagingDir "dtsys-agent.exe") ./cmd/agent
 if ($LASTEXITCODE -ne 0) { throw "go build failed" }
 Pop-Location
 

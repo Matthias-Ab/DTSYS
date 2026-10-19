@@ -33,7 +33,19 @@ var AgentVersion = version.Version
 
 func main() {
 	configPath := flag.String("config", defaultConfigPath, "Path to agent config file")
+	writeConfig := flag.Bool("write-config", false, "write an initial config file (for installers) and exit")
+	serverFlag := flag.String("server", "", "server URL for --write-config")
+	tokenFlag := flag.String("token", "", "enrollment token for --write-config")
 	flag.Parse()
+
+	if *writeConfig {
+		if err := config.WriteInitial(*configPath, *serverFlag, *tokenFlag); err != nil {
+			fmt.Fprintln(os.Stderr, "write-config failed:", err)
+			os.Exit(1)
+		}
+		fmt.Println("config written:", *configPath)
+		return
+	}
 
 	var wsClient *transport.Client
 	slog.SetDefault(slog.New(&forwardingHandler{
@@ -214,6 +226,8 @@ func register(cfg *config.Config, cfgPath string, tlsConfig *tls.Config) error {
 		if err == nil && statusCode == http.StatusOK {
 			cfg.Agent.DeviceID = result.DeviceID
 			cfg.Agent.APIKey = result.APIKey
+			// The enrollment token is single-use; keeping it on disk only widens exposure.
+			cfg.Server.EnrollmentToken = ""
 			if saveErr := config.Save(cfgPath, cfg); saveErr != nil {
 				return fmt.Errorf("save config: %w", saveErr)
 			}

@@ -3,7 +3,7 @@
   <name>DTSYS Device Management Agent</name>
   <description>Reports device health to DTSYS management server</description>
   <executable>dtsys-agent.exe</executable>
-  <arguments>--config agent.toml</arguments>
+  <arguments>--config "%BASE%\agent.toml"</arguments>
   <log mode="roll-by-size"><sizeThreshold>10240</sizeThreshold><keepFiles>3</keepFiles></log>
   <onfailure action="restart" delay="10 sec"/>
   <onfailure action="restart" delay="30 sec"/>

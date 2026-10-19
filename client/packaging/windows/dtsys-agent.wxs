@@ -68,15 +68,21 @@
     </Feature>
 
     <!-- Custom actions: write config, install/start/stop/uninstall service -->
-    <SetProperty Id="WriteConfigCmd"
-                 Value='[SystemFolder]cmd.exe /c echo server_url = "[DTSYS_SERVER]" &gt; "[INSTALLDIR]agent.toml" &amp;&amp; echo enrollment_token = "[DTSYS_TOKEN]" &gt;&gt; "[INSTALLDIR]agent.toml" &amp;&amp; echo org_id = "[DTSYS_ORG_ID]" &gt;&gt; "[INSTALLDIR]agent.toml"'
+    <!-- The agent writes its own config: TOML is encoded by the agent (no quoting/injection
+         problems from building TOML with `echo` in cmd.exe) and the file is restricted to
+         SYSTEM/Administrators. SetProperty's Id must equal the CustomAction Id: for a deferred
+         EXE action the property of the same name supplies the command line. (It previously
+         did not match, so the real command was never used.) Return="check" makes a failure
+         abort the install instead of leaving a service that cannot start. -->
+    <SetProperty Id="WriteConfigExec"
+                 Value='"[INSTALLDIR]dtsys-agent.exe" --write-config --config "[INSTALLDIR]agent.toml" --server "[DTSYS_SERVER]" --token "[DTSYS_TOKEN]"'
                  Before="WriteConfigExec"
                  Sequence="execute" />
 
     <CustomAction Id="WriteConfigExec"
                   Directory="INSTALLDIR"
-                  ExeCommand='[SystemFolder]cmd.exe /c echo [DTSYS_SERVER]'
-                  Return="ignore"
+                  ExeCommand=""
+                  Return="check"
                   Execute="deferred"
                   Impersonate="no" />
 
@@ -114,7 +120,7 @@
 
     <InstallExecuteSequence>
       <!-- On install: write config, install + start service -->
-      <Custom Action="WriteConfigExec" Before="InstallFinalize">NOT Installed</Custom>
+      <Custom Action="WriteConfigExec" After="InstallFiles">NOT Installed</Custom>
       <Custom Action="InstallService" After="WriteConfigExec">NOT Installed</Custom>
       <Custom Action="StartService" After="InstallService">NOT Installed</Custom>
 
@@ -128,7 +134,9 @@
 
     <!-- Public properties passed via msiexec PROPERTY=value -->
     <Property Id="DTSYS_SERVER" Secure="yes" />
-    <Property Id="DTSYS_TOKEN" Secure="yes" />
+    <Property Id="DTSYS_TOKEN" Secure="yes" Hidden="yes" />
+    <!-- Keep the enrollment token out of the verbose MSI log (it is also in WriteConfigExec's command line). -->
+    <Property Id="MsiHiddenProperties" Value="DTSYS_TOKEN;WriteConfigExec" />
     <Property Id="DTSYS_ORG_ID" Secure="yes" />
 
   </Package>

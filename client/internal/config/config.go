@@ -2,7 +2,10 @@ package config
 
 import (
 	"fmt"
+	"net/url"
 	"os"
+	"path/filepath"
+	"strings"
 
 	"github.com/BurntSushi/toml"
 )
@@ -53,8 +56,8 @@ type ExecutorConfig struct {
 	DisableShell bool `toml:"disable_shell"` // default false; set true to refuse "shell"/"script" commands locally
 }
 
-func Load(path string) (*Config, error) {
-	cfg := &Config{
+func defaults() *Config {
+	return &Config{
 		Collect: CollectConfig{
 			TelemetryIntervalSecs: 60,
 			SoftwareScanIntervalM: 60,
@@ -74,6 +77,10 @@ func Load(path string) (*Config, error) {
 			CheckIntervalHours: 6,
 		},
 	}
+}
+
+func Load(path string) (*Config, error) {
+	cfg := defaults()
 
 	if _, err := os.Stat(path); os.IsNotExist(err) {
 		return nil, fmt.Errorf("config file not found: %s", path)
@@ -90,13 +97,64 @@ func Load(path string) (*Config, error) {
 	return cfg, nil
 }
 
+// Save writes the config atomically (temp file + rename) with owner-only access, so a
+// crash or power loss mid-write can no longer leave an empty config that stops the
+// agent from starting, and the API key is never readable by other local users.
 func Save(path string, cfg *Config) error {
-	f, err := os.OpenFile(path, os.O_WRONLY|os.O_CREATE|os.O_TRUNC, 0600)
+	dir := filepath.Dir(path)
+	tmp, err := os.CreateTemp(dir, ".agent-config-*")
 	if err != nil {
 		return fmt.Errorf("cannot write config: %w", err)
 	}
-	defer f.Close()
+	tmpPath := tmp.Name()
+	cleanup := func() { _ = os.Remove(tmpPath) }
 
-	enc := toml.NewEncoder(f)
-	return enc.Encode(cfg)
+	if err := toml.NewEncoder(tmp).Encode(cfg); err != nil {
+		tmp.Close()
+		cleanup()
+		return fmt.Errorf("cannot encode config: %w", err)
+	}
+	if err := tmp.Close(); err != nil {
+		cleanup()
+		return fmt.Errorf("cannot write config: %w", err)
+	}
+	if err := restrictToOwner(tmpPath); err != nil {
+		cleanup()
+		return fmt.Errorf("cannot restrict config permissions: %w", err)
+	}
+	if err := os.Rename(tmpPath, path); err != nil {
+		cleanup()
+		return fmt.Errorf("cannot replace config: %w", err)
+	}
+	return nil
+}
+
+// WriteInitial creates the first config file for an installer (MSI/scripts). The
+// TOML is produced by the encoder, so server URLs and tokens containing quotes,
+// newlines or other special characters cannot inject extra keys the way string
+// concatenation in a shell/batch command could. An existing config that already
+// holds device credentials is left untouched, so re-running the installer (MSI
+// repair/upgrade) does not wipe enrollment.
+func WriteInitial(path, serverURL, enrollmentToken string) error {
+	u, err := url.Parse(strings.TrimSpace(serverURL))
+	if err != nil || u.Host == "" {
+		return fmt.Errorf("invalid server URL %q", serverURL)
+	}
+	switch u.Scheme {
+	case "http", "https", "ws", "wss":
+	default:
+		return fmt.Errorf("server URL must use http, https, ws or wss (got %q)", u.Scheme)
+	}
+	if strings.TrimSpace(enrollmentToken) == "" {
+		return fmt.Errorf("an enrollment token is required")
+	}
+
+	if existing, err := Load(path); err == nil && existing.Agent.DeviceID != "" && existing.Agent.APIKey != "" {
+		return nil
+	}
+
+	cfg := defaults()
+	cfg.Server.URL = strings.TrimSpace(serverURL)
+	cfg.Server.EnrollmentToken = strings.TrimSpace(enrollmentToken)
+	return Save(path, cfg)
 }
