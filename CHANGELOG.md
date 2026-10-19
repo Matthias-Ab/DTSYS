@@ -3,6 +3,9 @@
 ## Unreleased
 
 ### Fixed
+- **First deploy / upgrade**: migrations now run automatically as a one-shot `migrate` service before the API, worker and beat start; Postgres healthcheck waits for TCP and a real start period (TimescaleDB first-time init); new `scripts/upgrade.sh` and `docs/UPGRADE.md` with rollback steps; worker/beat/migrate reuse the server image
+- **Agent TLS**: with `skip_time_check` the certificate dates are still checked against the real time when the device clock is sane (expired certificates were previously accepted); installers/templates default it to off
+- **Windows MSI**: the agent writes its own correctly-formatted config (`--write-config`); MSI custom action wiring fixed (untested on Windows); enrollment token removed from disk after enrollment; config writes are atomic and owner-only
 - **Tenant isolation**: organization membership verified per request; scheduled commands, notification rules, groups, user administration and alert delivery are scoped to the caller's organization (previously an admin/viewer of one organization could read or change another's data and an "all devices" schedule ran on every organization's devices)
 - **Roles**: viewers can no longer reboot/update devices, edit devices, toggle maintenance, resolve alerts, change compliance policies or dispatch software updates
 - **Software-update dispatch** validates package names (shell-injection) and is admin-only and audited; **webhook URLs** are restricted to public http(s) hosts (SSRF); notification rules can be deleted
