@@ -68,17 +68,23 @@ if [ ! -f nginx/ssl/cert.pem ] || [ ! -f nginx/ssl/key.pem ]; then
   bash scripts/generate_certs.sh
 fi
 
+# Starts postgres/redis, runs the one-shot `migrate` service (alembic upgrade head),
+# and only then starts the API, worker and beat.
 "${COMPOSE[@]}" up -d --build
 
-echo "Waiting for the server to become healthy..."
-for _ in $(seq 1 40); do
+echo "Waiting for the server to become healthy (migrations run first)..."
+healthy=0
+for _ in $(seq 1 60); do
   if "${COMPOSE[@]}" exec -T server python -c "import urllib.request; urllib.request.urlopen('http://localhost:8000/health')" >/dev/null 2>&1; then
+    healthy=1
     break
   fi
   sleep 3
 done
-
-"${COMPOSE[@]}" exec -T server alembic upgrade head
+if [ "$healthy" -ne 1 ]; then
+  echo "Error: the server did not become healthy. Check: docker compose -f docker-compose.prod.yml logs migrate server" >&2
+  exit 1
+fi
 
 cat <<EOF
 
