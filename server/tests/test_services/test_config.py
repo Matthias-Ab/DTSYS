@@ -32,7 +32,17 @@ def test_production_accepts_hardened_config():
 
 def test_production_refuses_insecure_defaults():
     with pytest.raises(RuntimeError) as exc:
-        Settings(_env_file=None, ENVIRONMENT="production").assert_production_safe()
+        # Explicit insecure values: the test must not depend on the ambient environment
+        # (CI exports its own DATABASE_URL/REDIS_URL).
+        Settings(
+            _env_file=None,
+            ENVIRONMENT="production",
+            SECRET_KEY="dev-secret-key-change-in-production",
+            FIRST_ADMIN_PASSWORD="changeme",
+            ALLOWED_ORIGINS="http://localhost:3000",
+            DATABASE_URL="postgresql+asyncpg://dtsys:dtsys@localhost:5432/dtsys",
+            REDIS_URL="redis://localhost:6379/0",
+        ).assert_production_safe()
     message = str(exc.value)
     for expected in ("SECRET_KEY", "FIRST_ADMIN_PASSWORD", "ALLOWED_ORIGINS", "DATABASE_URL", "REDIS_URL"):
         assert expected in message

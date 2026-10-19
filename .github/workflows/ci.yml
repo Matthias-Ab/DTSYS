@@ -85,7 +85,7 @@ jobs:
         env:
           DATABASE_URL: postgresql+asyncpg://dtsys:testpassword@localhost:5432/dtsys_test
           REDIS_URL: redis://localhost:6379
-          SECRET_KEY: test-secret-key-for-ci-only
+          SECRET_KEY: test-secret-key-for-ci-only-0123456789abcdef
           ENVIRONMENT: test
         run: uv run pytest tests/ -v --tb=short
       - name: Security audit
