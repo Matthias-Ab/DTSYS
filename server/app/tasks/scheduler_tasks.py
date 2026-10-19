@@ -38,23 +38,54 @@ async def _run_scheduled_commands() -> None:
         for scheduled in scheduled_commands:
             device_ids: list = []
             if scheduled.device_id:
+                # Defence in depth for rows created before org checks existed (or by
+                # any future bug): never run a schedule on a device of another org.
+                target = await db.execute(select(Device).where(Device.id == scheduled.device_id))
+                device = target.scalar_one_or_none()
+                if device is None or device.is_revoked or device.org_id != scheduled.org_id:
+                    log.warning(
+                        "scheduled_command_blocked_foreign_target",
+                        scheduled_command_id=str(scheduled.id),
+                        device_id=str(scheduled.device_id),
+                    )
+                    scheduled.is_enabled = False
+                    scheduled.next_run_at = None
+                    continue
                 device_ids = [scheduled.device_id]
             else:
+                # "All devices" means all devices of the schedule's own organization.
                 device_result = await db.execute(
-                    select(Device.id).where(~Device.is_revoked)
+                    select(Device.id).where(~Device.is_revoked, Device.org_id == scheduled.org_id)
                 )
-                device_ids = list(device_result.scalars().all())
+                device_ids = [getattr(item, "id", item) for item in device_result.scalars().all()]
 
+            failures = 0
             for device_id in device_ids:
-                await command_service.dispatch_command(
-                    device_id=device_id,
-                    command_type=scheduled.command_type,
-                    payload=scheduled.payload or {},
-                    issued_by=scheduled.created_by,
-                )
+                # One bad device (offline queue full, revoked, ...) must not abort the
+                # whole run and leave every schedule stuck re-firing each minute.
+                try:
+                    await command_service.dispatch_command(
+                        device_id=device_id,
+                        command_type=scheduled.command_type,
+                        payload=scheduled.payload or {},
+                        issued_by=scheduled.created_by,
+                    )
+                except Exception as exc:
+                    failures += 1
+                    log.warning(
+                        "scheduled_command_dispatch_failed",
+                        scheduled_command_id=str(scheduled.id),
+                        device_id=str(device_id),
+                        error=str(exc),
+                    )
 
             scheduled.last_run_at = now
             scheduled.next_run_at = croniter(scheduled.cron_expression, now).get_next(datetime)
-            log.info("scheduled_command_dispatched", scheduled_command_id=str(scheduled.id), target_count=len(device_ids))
+            log.info(
+                "scheduled_command_dispatched",
+                scheduled_command_id=str(scheduled.id),
+                target_count=len(device_ids),
+                failures=failures,
+            )
 
         await db.commit()

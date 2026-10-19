@@ -268,7 +268,7 @@ async def get_device_network(
 async def update_device(
     device_id: uuid.UUID,
     body: UpdateDeviceRequest,
-    current_user: Annotated[User, Depends(get_current_user)],
+    current_user: Annotated[User, Depends(require_admin)],
     current_org_id: Annotated[uuid.UUID, Depends(get_current_org_id)],
     db: Annotated[AsyncSession, Depends(get_db)],
 ):
@@ -300,7 +300,7 @@ async def update_device(
 async def set_device_maintenance(
     device_id: uuid.UUID,
     body: MaintenanceRequest,
-    current_user: Annotated[User, Depends(get_current_user)],
+    current_user: Annotated[User, Depends(require_admin)],
     current_org_id: Annotated[uuid.UUID, Depends(get_current_org_id)],
     db: Annotated[AsyncSession, Depends(get_db)],
 ):
@@ -338,7 +338,7 @@ async def get_device_config(
 async def update_device_config(
     device_id: uuid.UUID,
     body: DeviceConfigRequest,
-    current_user: Annotated[User, Depends(get_current_user)],
+    current_user: Annotated[User, Depends(require_admin)],
     current_org_id: Annotated[uuid.UUID, Depends(get_current_org_id)],
     db: Annotated[AsyncSession, Depends(get_db)],
 ):
@@ -412,7 +412,7 @@ async def rotate_device_key(
 @router.post("/{device_id}/screenshot/request")
 async def request_screenshot(
     device_id: uuid.UUID,
-    current_user: Annotated[User, Depends(get_current_user)],
+    current_user: Annotated[User, Depends(require_admin)],
     current_org_id: Annotated[uuid.UUID, Depends(get_current_org_id)],
     db: Annotated[AsyncSession, Depends(get_db)],
 ):
@@ -493,7 +493,7 @@ async def get_device_ssh_keys(
 async def delete_device_ssh_key(
     device_id: uuid.UUID,
     key_id: uuid.UUID,
-    current_user: Annotated[User, Depends(get_current_user)],
+    current_user: Annotated[User, Depends(require_admin)],
     current_org_id: Annotated[uuid.UUID, Depends(get_current_org_id)],
     db: Annotated[AsyncSession, Depends(get_db)],
 ):

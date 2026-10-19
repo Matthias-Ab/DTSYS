@@ -11,6 +11,8 @@ from app.dependencies import get_current_user, get_current_org_id, require_admin
 from app.models.device import Device
 from app.models.device_group import DeviceGroup, DeviceGroupMembership
 from app.models.user import User
+from app.services.scoping import devices_in_org, get_in_org
+from app.websocket.manager import manager
 
 router = APIRouter(prefix="/groups", tags=["groups"])
 
@@ -91,11 +93,10 @@ async def update_group(
     group_id: uuid.UUID,
     body: GroupUpdateRequest,
     current_user: Annotated[User, Depends(require_admin)],
+    current_org_id: Annotated[uuid.UUID, Depends(get_current_org_id)],
     db: Annotated[AsyncSession, Depends(get_db)],
 ):
-    group = await db.get(DeviceGroup, group_id)
-    if group is None:
-        raise HTTPException(status_code=404, detail="Group not found")
+    group = await get_in_org(db, DeviceGroup, group_id, current_org_id, "Group")
     for field, value in body.model_dump(exclude_unset=True).items():
         setattr(group, field, value)
     await db.commit()
@@ -106,11 +107,10 @@ async def update_group(
 async def delete_group(
     group_id: uuid.UUID,
     current_user: Annotated[User, Depends(require_admin)],
+    current_org_id: Annotated[uuid.UUID, Depends(get_current_org_id)],
     db: Annotated[AsyncSession, Depends(get_db)],
 ):
-    group = await db.get(DeviceGroup, group_id)
-    if group is None:
-        raise HTTPException(status_code=404, detail="Group not found")
+    group = await get_in_org(db, DeviceGroup, group_id, current_org_id, "Group")
     await db.delete(group)
     await db.commit()
     return {"message": "Deleted"}
@@ -121,11 +121,16 @@ async def add_devices_to_group(
     group_id: uuid.UUID,
     body: GroupDevicesRequest,
     current_user: Annotated[User, Depends(require_admin)],
+    current_org_id: Annotated[uuid.UUID, Depends(get_current_org_id)],
     db: Annotated[AsyncSession, Depends(get_db)],
 ):
-    group = await db.get(DeviceGroup, group_id)
-    if group is None:
-        raise HTTPException(status_code=404, detail="Group not found")
+    await get_in_org(db, DeviceGroup, group_id, current_org_id, "Group")
+    # Every device must belong to the caller's organization; a single foreign id
+    # fails the whole request instead of silently pulling another tenant's device in.
+    requested = set(body.device_ids)
+    allowed = {device.id for device in await devices_in_org(db, list(requested), current_org_id)}
+    if requested - allowed:
+        raise HTTPException(status_code=404, detail="Device not found")
 
     existing = await db.execute(
         select(DeviceGroupMembership.device_id).where(DeviceGroupMembership.group_id == group_id)
@@ -145,8 +150,10 @@ async def remove_device_from_group(
     group_id: uuid.UUID,
     device_id: uuid.UUID,
     current_user: Annotated[User, Depends(require_admin)],
+    current_org_id: Annotated[uuid.UUID, Depends(get_current_org_id)],
     db: Annotated[AsyncSession, Depends(get_db)],
 ):
+    await get_in_org(db, DeviceGroup, group_id, current_org_id, "Group")
     result = await db.execute(
         select(DeviceGroupMembership).where(
             DeviceGroupMembership.group_id == group_id,
@@ -165,15 +172,18 @@ async def remove_device_from_group(
 async def list_group_devices(
     group_id: uuid.UUID,
     current_user: Annotated[User, Depends(get_current_user)],
+    current_org_id: Annotated[uuid.UUID, Depends(get_current_org_id)],
     db: Annotated[AsyncSession, Depends(get_db)],
 ):
+    await get_in_org(db, DeviceGroup, group_id, current_org_id, "Group")
     result = await db.execute(
         select(Device)
         .join(DeviceGroupMembership, DeviceGroupMembership.device_id == Device.id)
-        .where(DeviceGroupMembership.group_id == group_id)
+        .where(DeviceGroupMembership.group_id == group_id, Device.org_id == current_org_id)
         .order_by(Device.hostname.asc())
     )
     devices = result.scalars().all()
+    online_ids = await manager.online_among([device.id for device in devices])
     return [
         {
             "id": str(device.id),
@@ -188,7 +198,7 @@ async def list_group_devices(
             "enrolled_at": device.enrolled_at.isoformat() if device.enrolled_at else None,
             "notes": device.notes,
             "tags": device.tags or [],
-            "is_online": False,
+            "is_online": device.id in online_ids,
         }
         for device in devices
     ]
@@ -198,12 +208,14 @@ async def list_group_devices(
 async def list_device_groups(
     device_id: uuid.UUID,
     current_user: Annotated[User, Depends(get_current_user)],
+    current_org_id: Annotated[uuid.UUID, Depends(get_current_org_id)],
     db: Annotated[AsyncSession, Depends(get_db)],
 ):
+    await get_in_org(db, Device, device_id, current_org_id, "Device")
     result = await db.execute(
         select(DeviceGroup)
         .join(DeviceGroupMembership, DeviceGroupMembership.group_id == DeviceGroup.id)
-        .where(DeviceGroupMembership.device_id == device_id)
+        .where(DeviceGroupMembership.device_id == device_id, DeviceGroup.org_id == current_org_id)
         .order_by(DeviceGroup.name.asc())
     )
     groups = result.scalars().all()

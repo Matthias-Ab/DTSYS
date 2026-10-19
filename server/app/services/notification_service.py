@@ -25,7 +25,12 @@ class NotificationService:
         from sqlalchemy import select
 
         result = await self.db.execute(
-            select(NotificationRule).where(NotificationRule.is_enabled)
+            # Only the alert's own organization's rules: without this filter every
+            # tenant's webhook/email received every other tenant's alerts.
+            select(NotificationRule).where(
+                NotificationRule.is_enabled,
+                NotificationRule.org_id == device.org_id,
+            )
         )
         rules = result.scalars().all()
         matching_rules = [rule for rule in rules if self._matches(rule, alert)]

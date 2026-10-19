@@ -120,7 +120,7 @@ class ComplianceService:
         metric_result = await self.db.execute(
             select(DeviceMetric)
             .where(DeviceMetric.device_id == device.id)
-            .order_by(DeviceMetric.timestamp.desc())
+            .order_by(DeviceMetric.time.desc())
             .limit(1)
         )
         metric = metric_result.scalar_one_or_none()

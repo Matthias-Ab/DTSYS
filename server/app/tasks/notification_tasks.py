@@ -1,6 +1,7 @@
 import httpx
 
 from app.core.logging import get_logger
+from app.core.url_safety import validate_public_http_url
 from app.tasks.celery_app import celery_app
 
 log = get_logger(__name__)
@@ -16,8 +17,15 @@ log = get_logger(__name__)
     max_retries=5,
 )
 def deliver_webhook_notification(self, webhook_url: str, payload: dict) -> None:
+    # Re-check at send time: DNS can change after the rule was saved, and rules
+    # created before this validation existed may still point at internal hosts.
     try:
-        with httpx.Client(timeout=5.0) as client:
+        validate_public_http_url(webhook_url)
+    except ValueError as exc:
+        log.warning("webhook_blocked", error=str(exc))
+        return
+    try:
+        with httpx.Client(timeout=5.0, follow_redirects=False) as client:
             response = client.post(webhook_url, json=payload)
             response.raise_for_status()
     except httpx.HTTPError as exc:

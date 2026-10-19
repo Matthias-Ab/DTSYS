@@ -1,24 +1,44 @@
+import re
+import shlex
 import uuid
 from typing import Annotated
 
 from fastapi import APIRouter, Depends
-from pydantic import BaseModel
+from pydantic import BaseModel, Field, field_validator
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.db.session import get_db
-from app.dependencies import get_current_user, get_current_org_id
+from app.dependencies import get_current_user, get_current_org_id, require_admin
 from app.models.device import Device
 from app.models.software import SoftwareInventory
 from app.models.user import User
+from app.services.audit_service import log_action
 from app.services.command_service import CommandService
+from app.services.scoping import devices_in_org
 
 router = APIRouter(prefix="/software-updates", tags=["software-updates"])
 
 
+# Package names end up inside a root/SYSTEM shell command line, so only characters
+# that every package manager uses and no shell treats specially are accepted
+# (no spaces, quotes, ; & | $ ` ( ) < > \\ newlines or globbing characters).
+PACKAGE_NAME = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._+:@-]{0,127}$")
+MAX_PACKAGES = 100
+MAX_DEVICES = 500
+
+
 class SoftwareDispatchRequest(BaseModel):
-    software_names: list[str]
-    device_ids: list[uuid.UUID]
+    software_names: list[str] = Field(min_length=1, max_length=MAX_PACKAGES)
+    device_ids: list[uuid.UUID] = Field(min_length=1, max_length=MAX_DEVICES)
+
+    @field_validator("software_names")
+    @classmethod
+    def _safe_names(cls, names: list[str]) -> list[str]:
+        for name in names:
+            if not PACKAGE_NAME.fullmatch(name):
+                raise ValueError(f"invalid package name: {name!r}")
+        return names
 
 
 @router.get("/pending")
@@ -62,15 +82,12 @@ async def get_pending_updates(
 @router.post("/dispatch")
 async def dispatch_updates(
     body: SoftwareDispatchRequest,
-    current_user: Annotated[User, Depends(get_current_user)],
+    current_user: Annotated[User, Depends(require_admin)],
     current_org_id: Annotated[uuid.UUID, Depends(get_current_org_id)],
     db: Annotated[AsyncSession, Depends(get_db)],
 ):
     command_service = CommandService(db)
-    devices_result = await db.execute(
-        select(Device).where(Device.id.in_(body.device_ids), Device.org_id == current_org_id)
-    )
-    devices = {device.id: device for device in devices_result.scalars().all()}
+    devices = {device.id: device for device in await devices_in_org(db, body.device_ids, current_org_id)}
 
     dispatched = []
     for device_id in body.device_ids:
@@ -88,12 +105,19 @@ async def dispatch_updates(
             "command_id": str(command.id),
         })
 
+    await log_action(
+        db,
+        current_user,
+        "software_update_dispatched",
+        resource_type="software_update",
+        details={"packages": body.software_names, "device_count": len(dispatched)},
+    )
     await db.commit()
     return {"dispatched": dispatched}
 
 
 def _build_update_command(os_type: str, packages: list[str]) -> str:
-    package_list = " ".join(packages)
+    package_list = " ".join(shlex.quote(pkg) for pkg in packages)
     if os_type == "windows":
         return f'powershell -Command "if (Get-Command winget -ErrorAction SilentlyContinue) {{ {"; ".join([f"winget upgrade --exact --id {pkg} --silent" for pkg in packages])} }} elseif (Get-Command choco -ErrorAction SilentlyContinue) {{ choco upgrade -y {package_list} }} else {{ Write-Output \'No supported package manager found\' }}"'
     if os_type == "macos":

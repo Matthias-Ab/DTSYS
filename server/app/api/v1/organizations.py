@@ -233,6 +233,19 @@ async def remove_member(
     if target.role == "owner":
         raise HTTPException(status_code=400, detail="Cannot remove org owner")
     await db.delete(target)
+
+    # Do not leave the removed user pointing at an organization they no longer
+    # belong to: token refresh mints the org claim from active_org_id.
+    removed_user = await db.get(User, user_id)
+    if removed_user is not None and removed_user.active_org_id == org_id:
+        other = await db.execute(
+            select(OrganizationMember).where(
+                OrganizationMember.user_id == user_id,
+                OrganizationMember.org_id != org_id,
+            )
+        )
+        fallback = other.scalars().first()
+        removed_user.active_org_id = fallback.org_id if fallback else None
     await db.commit()
     return {"message": "Member removed"}
 

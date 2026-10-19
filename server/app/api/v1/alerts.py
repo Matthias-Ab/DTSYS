@@ -8,8 +8,9 @@ from app.db.session import get_db
 from app.models.user import User
 from app.models.alert import Alert
 from app.models.device import Device
-from app.dependencies import get_current_user, get_current_org_id
+from app.dependencies import get_current_user, get_current_org_id, require_admin
 from app.services.alert_service import AlertService
+from app.services.audit_service import log_action
 
 router = APIRouter(prefix="/alerts", tags=["alerts"])
 
@@ -63,17 +64,26 @@ async def list_alerts(
 @router.post("/{alert_id}/resolve")
 async def resolve_alert(
     alert_id: uuid.UUID,
-    current_user: Annotated[User, Depends(get_current_user)],
+    current_user: Annotated[User, Depends(require_admin)],
     current_org_id: Annotated[uuid.UUID, Depends(get_current_org_id)],
     db: Annotated[AsyncSession, Depends(get_db)],
 ):
-    service = AlertService(db)
-    alert = await service.resolve_alert(alert_id)
-    result = await db.execute(
-        select(Device).where(Device.id == alert.device_id, Device.org_id == current_org_id)
-    )
-    if result.scalar_one_or_none() is None:
+    # Authorize against the alert's device BEFORE mutating anything.
+    found = await db.execute(select(Alert).where(Alert.id == alert_id))
+    existing = found.scalar_one_or_none()
+    if existing is None:
         raise HTTPException(status_code=404, detail="Alert not found")
+    owner = await db.execute(
+        select(Device).where(Device.id == existing.device_id, Device.org_id == current_org_id)
+    )
+    if owner.scalar_one_or_none() is None:
+        raise HTTPException(status_code=404, detail="Alert not found")
+
+    alert = await AlertService(db).resolve_alert(alert_id)
+    await log_action(
+        db, current_user, "alert_resolved", resource_type="alert", resource_id=str(alert.id),
+        details={"alert_type": alert.alert_type, "device_id": str(alert.device_id)},
+    )
     await db.commit()
     return _fmt(alert)
 

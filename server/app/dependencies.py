@@ -7,6 +7,7 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.db.session import get_db
+from app.models.organization import OrganizationMember
 from app.models.user import User
 from app.core.security import decode_token
 from app.core.exceptions import UnauthorizedError, ForbiddenError
@@ -49,7 +50,15 @@ async def require_admin(current_user: Annotated[User, Depends(get_current_user)]
 
 async def get_current_org_id(
     credentials: Annotated[HTTPAuthorizationCredentials | None, Depends(bearer_scheme)],
+    db: Annotated[AsyncSession, Depends(get_db)],
 ) -> uuid.UUID:
+    """The organization the caller is acting in.
+
+    The token's ``org_id`` claim is only a *request* to act in that organization; it
+    is checked against current membership on every call. Trusting the claim alone
+    meant a user removed from an organization (or whose token carried a forged or
+    stale org) kept full access until the token expired.
+    """
     if credentials is None:
         raise UnauthorizedError("Missing bearer token")
 
@@ -61,7 +70,23 @@ async def get_current_org_id(
     if payload.get("type") != "access":
         raise UnauthorizedError("Wrong token type")
 
-    org_id = payload.get("org_id")
-    if not org_id:
+    org_claim = payload.get("org_id")
+    user_claim = payload.get("sub")
+    if not org_claim or not user_claim:
         raise UnauthorizedError("Missing organization")
-    return uuid.UUID(org_id)
+
+    try:
+        org_id = uuid.UUID(org_claim)
+        user_id = uuid.UUID(user_claim)
+    except ValueError:
+        raise UnauthorizedError("Invalid organization")
+
+    membership = await db.execute(
+        select(OrganizationMember).where(
+            OrganizationMember.org_id == org_id,
+            OrganizationMember.user_id == user_id,
+        )
+    )
+    if membership.scalar_one_or_none() is None:
+        raise ForbiddenError("Not a member of this organization")
+    return org_id

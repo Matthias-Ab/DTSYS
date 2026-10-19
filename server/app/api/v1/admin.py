@@ -15,8 +15,9 @@ from app.core.security import hash_password
 from app.db.session import get_db
 from app.models.audit_log import AuditLog
 from app.models.device import Device
+from app.models.organization import OrganizationMember
 from app.models.user import User
-from app.dependencies import get_current_user, require_admin
+from app.dependencies import get_current_org_id, get_current_user, require_admin
 from app.services.auth_service import AuthService
 from app.services.audit_service import log_action
 from app.tasks.cleanup_tasks import collect_storage_stats, run_cleanup
@@ -40,16 +41,53 @@ class ResetPasswordRequest(BaseModel):
     password: str = Field(min_length=8, max_length=255)
 
 
+async def _org_member_ids(db: AsyncSession, org_id: uuid.UUID) -> set[uuid.UUID]:
+    result = await db.execute(select(OrganizationMember).where(OrganizationMember.org_id == org_id))
+    return {member.user_id for member in result.scalars().all()}
+
+
+async def _get_org_user(db: AsyncSession, user_id: uuid.UUID, org_id: uuid.UUID) -> User:
+    """A user of the caller's own organization; anyone else is reported as not found.
+
+    The admin role used to be platform-wide: an admin of tenant A could list every
+    user, reset tenant B's admin password and take that account over.
+    """
+    if user_id not in await _org_member_ids(db, org_id):
+        raise HTTPException(status_code=404, detail="User not found")
+    user = await db.get(User, user_id)
+    if user is None:
+        raise HTTPException(status_code=404, detail="User not found")
+    return user
+
+
+async def _active_admin_count(db: AsyncSession, org_id: uuid.UUID) -> int:
+    member_ids = await _org_member_ids(db, org_id)
+    if not member_ids:
+        return 0
+    result = await db.execute(select(User).where(User.id.in_(member_ids), User.role == "admin", User.is_active))
+    return len(result.scalars().all())
+
+
 @router.post("/users")
 async def create_user(
     body: CreateUserRequest,
     current_user: Annotated[User, Depends(require_admin)],
+    current_org_id: Annotated[uuid.UUID, Depends(get_current_org_id)],
     db: Annotated[AsyncSession, Depends(get_db)],
 ):
     if body.role not in {"admin", "viewer"}:
         raise HTTPException(status_code=400, detail="Role must be admin or viewer")
+    if len(body.password) < 12:
+        raise HTTPException(status_code=400, detail="Password must be at least 12 characters")
+    existing = await db.execute(select(User).where(User.username == body.username))
+    if existing.scalar_one_or_none() is not None:
+        raise HTTPException(status_code=409, detail="Username already exists")
     service = AuthService(db)
     user = await service.create_user(body.username, body.password, body.role)
+    # New users belong to the creating admin's organization (and start in it),
+    # otherwise they can log in but every org-scoped call fails.
+    user.active_org_id = current_org_id
+    db.add(OrganizationMember(org_id=current_org_id, user_id=user.id, role="member"))
     await log_action(
         db,
         current_user,
@@ -65,9 +103,13 @@ async def create_user(
 @router.get("/users")
 async def list_users(
     current_user: Annotated[User, Depends(require_admin)],
+    current_org_id: Annotated[uuid.UUID, Depends(get_current_org_id)],
     db: Annotated[AsyncSession, Depends(get_db)],
 ):
-    result = await db.execute(select(User).order_by(User.created_at.asc(), User.username.asc()))
+    member_ids = await _org_member_ids(db, current_org_id)
+    result = await db.execute(
+        select(User).where(User.id.in_(member_ids)).order_by(User.created_at.asc(), User.username.asc())
+    )
     users = result.scalars().all()
     return [
         {
@@ -87,11 +129,10 @@ async def update_user(
     user_id: uuid.UUID,
     body: UpdateUserRequest,
     current_user: Annotated[User, Depends(require_admin)],
+    current_org_id: Annotated[uuid.UUID, Depends(get_current_org_id)],
     db: Annotated[AsyncSession, Depends(get_db)],
 ):
-    user = await db.get(User, user_id)
-    if user is None:
-        raise HTTPException(status_code=404, detail="User not found")
+    user = await _get_org_user(db, user_id, current_org_id)
 
     if body.role is not None:
         if body.role not in {"admin", "viewer"}:
@@ -104,10 +145,7 @@ async def update_user(
         if user.id == current_user.id and not body.is_active:
             raise HTTPException(status_code=400, detail="Cannot deactivate yourself")
         if not body.is_active and user.role == "admin":
-            admin_count = int(
-                await db.scalar(select(func.count()).select_from(User).where(User.role == "admin", User.is_active)) or 0
-            )
-            if admin_count <= 1:
+            if await _active_admin_count(db, current_org_id) <= 1:
                 raise HTTPException(status_code=400, detail="Cannot deactivate the last admin")
         user.is_active = body.is_active
 
@@ -133,13 +171,12 @@ async def reset_user_password(
     user_id: uuid.UUID,
     body: ResetPasswordRequest,
     current_user: Annotated[User, Depends(get_current_user)],
+    current_org_id: Annotated[uuid.UUID, Depends(get_current_org_id)],
     db: Annotated[AsyncSession, Depends(get_db)],
 ):
-    user = await db.get(User, user_id)
-    if user is None:
-        raise HTTPException(status_code=404, detail="User not found")
-    if current_user.role != "admin" and current_user.id != user.id:
+    if current_user.role != "admin" and current_user.id != user_id:
         raise HTTPException(status_code=403, detail="Not allowed to change this password")
+    user = await _get_org_user(db, user_id, current_org_id)
 
     user.password_hash = hash_password(body.password)
     await log_action(
@@ -158,18 +195,14 @@ async def reset_user_password(
 async def delete_user(
     user_id: uuid.UUID,
     current_user: Annotated[User, Depends(require_admin)],
+    current_org_id: Annotated[uuid.UUID, Depends(get_current_org_id)],
     db: Annotated[AsyncSession, Depends(get_db)],
 ):
-    user = await db.get(User, user_id)
-    if user is None:
-        raise HTTPException(status_code=404, detail="User not found")
+    user = await _get_org_user(db, user_id, current_org_id)
     if user.id == current_user.id:
         raise HTTPException(status_code=400, detail="Cannot delete yourself")
     if user.role == "admin" and user.is_active:
-        admin_count = int(
-            await db.scalar(select(func.count()).select_from(User).where(User.role == "admin", User.is_active)) or 0
-        )
-        if admin_count <= 1:
+        if await _active_admin_count(db, current_org_id) <= 1:
             raise HTTPException(status_code=400, detail="Cannot delete the last admin")
 
     user.is_active = False
@@ -188,15 +221,16 @@ async def delete_user(
 @router.post("/enrollment-tokens")
 async def generate_enrollment_token(
     current_user: Annotated[User, Depends(require_admin)],
+    current_org_id: Annotated[uuid.UUID, Depends(get_current_org_id)],
     redis: Annotated[Redis, Depends(get_redis)],
 ):
-    if current_user.active_org_id is None:
-        raise HTTPException(status_code=400, detail="No active organization for user")
+    # The membership-verified organization, not users.active_org_id (which could
+    # point at an organization the user no longer belongs to).
     token = secrets.token_urlsafe(24)
     await redis.setex(
         f"enrollment:{token}",
         3600,
-        json.dumps({"org_id": str(current_user.active_org_id)}),
+        json.dumps({"org_id": str(current_org_id)}),
     )
     return {
         "enrollment_token": token,

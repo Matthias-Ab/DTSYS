@@ -19,10 +19,12 @@ from app.core.rate_limit import limiter
 router = APIRouter(prefix="/devices/{device_id}/commands", tags=["commands"])
 log = get_logger(__name__)
 
-# Command types that execute arbitrary code on the device — restricted to org admins
-# and fully captured in the audit log so a compromised non-admin account can't be used
-# to run ad-hoc shell commands across the fleet.
-HIGH_RISK_COMMAND_TYPES = {"shell", "script"}
+# Command types that run code, change the device or disrupt it — restricted to admins
+# so a viewer (or a compromised viewer account) cannot reboot machines, push agent
+# updates, change the clock or run ad-hoc shell. Viewers keep the read-only
+# diagnostics: update_check, request_process_list, diagnostics.
+# Only "shell"/"script" bodies are recorded verbatim in the audit log (see below).
+HIGH_RISK_COMMAND_TYPES = {"shell", "script", "reboot", "update", "sync_time"}
 
 
 class CommandRequest(BaseModel):

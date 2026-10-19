@@ -10,7 +10,7 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.db.session import get_db
-from app.dependencies import get_current_org_id, get_current_user
+from app.dependencies import get_current_org_id, require_admin
 from app.models.compliance import CompliancePolicy, ComplianceResult
 from app.models.device import Device
 from app.models.user import User
@@ -87,7 +87,7 @@ async def create_policy(
     body: PolicyCreate,
     current_org_id: Annotated[uuid.UUID, Depends(get_current_org_id)],
     db: Annotated[AsyncSession, Depends(get_db)],
-    _: Annotated[User, Depends(get_current_user)],
+    _: Annotated[User, Depends(require_admin)],
 ):
     policy = CompliancePolicy(
         org_id=current_org_id,
@@ -126,7 +126,7 @@ async def update_policy(
     body: PolicyUpdate,
     current_org_id: Annotated[uuid.UUID, Depends(get_current_org_id)],
     db: Annotated[AsyncSession, Depends(get_db)],
-    _: Annotated[User, Depends(get_current_user)],
+    _: Annotated[User, Depends(require_admin)],
 ):
     policy = await _get_policy(policy_id, current_org_id, db)
     if body.name is not None:
@@ -146,7 +146,7 @@ async def delete_policy(
     policy_id: uuid.UUID,
     current_org_id: Annotated[uuid.UUID, Depends(get_current_org_id)],
     db: Annotated[AsyncSession, Depends(get_db)],
-    _: Annotated[User, Depends(get_current_user)],
+    _: Annotated[User, Depends(require_admin)],
 ):
     policy = await _get_policy(policy_id, current_org_id, db)
     await db.delete(policy)
@@ -200,7 +200,7 @@ async def trigger_evaluation(
     policy_id: uuid.UUID,
     current_org_id: Annotated[uuid.UUID, Depends(get_current_org_id)],
     db: Annotated[AsyncSession, Depends(get_db)],
-    _: Annotated[User, Depends(get_current_user)],
+    _: Annotated[User, Depends(require_admin)],
 ):
     """Trigger an immediate compliance evaluation for all devices against a policy."""
     policy = await _get_policy(policy_id, current_org_id, db)

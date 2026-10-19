@@ -2,19 +2,23 @@ import pytest
 import uuid
 
 from app.core.security import verify_password
+from app.models.organization import OrganizationMember
 from app.models.user import User
+from tests.conftest import DEFAULT_ORG_ID
+
+
+def _add_to_org(db_session, user: User) -> User:
+    """User administration is per organization: the target must be a member."""
+    db_session.add(user)
+    db_session.add(OrganizationMember(id=uuid.uuid4(), org_id=DEFAULT_ORG_ID, user_id=user.id, role="member"))
+    return user
 
 
 @pytest.mark.asyncio
 async def test_list_users_admin_only(client, db_session, admin_token):
-    db_session.add(
-        User(
-            id=uuid.uuid4(),
-            username="viewer1",
-            password_hash="unused",
-            role="viewer",
-            is_active=True,
-        )
+    _add_to_org(
+        db_session,
+        User(id=uuid.uuid4(), username="viewer1", password_hash="unused", role="viewer", is_active=True),
     )
 
     unauthorized = await client.get("/api/v1/admin/users")
@@ -35,7 +39,7 @@ async def test_update_user_role(client, db_session, admin_token):
         role="viewer",
         is_active=True,
     )
-    db_session.add(user)
+    _add_to_org(db_session, user)
 
     response = await client.patch(
         f"/api/v1/admin/users/{user.id}",
@@ -64,7 +68,7 @@ async def test_password_reset(client, db_session, admin_token):
         role="viewer",
         is_active=True,
     )
-    db_session.add(user)
+    _add_to_org(db_session, user)
 
     response = await client.patch(
         f"/api/v1/admin/users/{user.id}/password",
@@ -84,7 +88,7 @@ async def test_delete_non_last_admin_soft_deactivates(client, db_session, admin_
         role="admin",
         is_active=True,
     )
-    db_session.add(user)
+    _add_to_org(db_session, user)
 
     response = await client.delete(
         f"/api/v1/admin/users/{user.id}",
