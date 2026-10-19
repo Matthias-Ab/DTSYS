@@ -3,6 +3,10 @@
 ## Unreleased
 
 ### Fixed
+- **Tenant isolation**: organization membership verified per request; scheduled commands, notification rules, groups, user administration and alert delivery are scoped to the caller's organization (previously an admin/viewer of one organization could read or change another's data and an "all devices" schedule ran on every organization's devices)
+- **Roles**: viewers can no longer reboot/update devices, edit devices, toggle maintenance, resolve alerts, change compliance policies or dispatch software updates
+- **Software-update dispatch** validates package names (shell-injection) and is admin-only and audited; **webhook URLs** are restricted to public http(s) hosts (SSRF); notification rules can be deleted
+- **Compliance evaluation** no longer crashes; scheduler no longer aborts a whole run on one failing device
 - **MFA login in the web UI**: a 401 from the login endpoint no longer triggers a refresh/logout/hard reload that wiped the code-entry step
 - **Production safety checks** now reject placeholder secrets from `.env.example` (SECRET_KEY, admin/DB/Redis passwords, metrics token, origins) and unknown `ENVIRONMENT` values
 - **Dependencies**: replaced `python-jose` with `PyJWT`, `cryptography` >= 50, Go 1.26.9 (stdlib CVEs), `golang.org/x/sys` bump (linux/arm64 build), `axios` high-severity fix

@@ -44,15 +44,15 @@ The earlier score (68) was based on what I had *run*: the happy path works. The 
 ## 3. P0 — fix before any production deployment
 
 ### Security / tenancy (server)
-- [ ] **SRV-01 ✔ Scheduled commands with no device run on every org's devices.** `server/app/tasks/scheduler_tasks.py:44` `select(Device.id).where(~Device.is_revoked)` has no `org_id` filter; `device_id` is optional. *Fix:* filter by `scheduled.org_id`.
-- [ ] **SRV-02 ○ Scheduled-command create/update accepts any device UUID** (`scheduled_commands.py:55,82-124`), no org check, no cron validation (invalid cron → 500), not-found returns 200, `command_type` unvalidated. *Fix:* validate device against `current_org_id`, validate cron + type, return 404.
-- [ ] **SRV-03 ✔ Any viewer can run arbitrary shell as root/SYSTEM via software updates.** `software_updates.py:62-101` uses `get_current_user`, builds a command with `" ".join(packages)` from unvalidated names, sends it as `shell` (bypasses the admin gate on `shell`). No audit, no size cap. *Fix:* `require_admin`, validate names against `^[A-Za-z0-9._+:-]+$`, shell-quote, audit.
-- [ ] **SRV-04 ✔ Alerts delivered to every org's webhooks/emails.** `notification_service.py:28` `select(NotificationRule).where(is_enabled)` — no `org_id` filter. *Fix:* `NotificationRule.org_id == device.org_id`.
-- [ ] **SRV-05 ✔ Group endpoints have no org scoping (IDOR).** `groups.py:96,111,126…` use `db.get(DeviceGroup, id)`; `add_devices_to_group` accepts any device UUID. A viewer can read other orgs' device details; an admin can delete other orgs' groups.
-- [ ] **SRV-06 ○ Removed org members keep access.** `dependencies.py:51-67` trusts the JWT `org_id` and never checks membership; `remove_member` leaves `users.active_org_id` set so refresh re-mints org access for 30+ days. *Fix:* verify membership per request; clear `active_org_id` on removal.
-- [ ] **SRV-07 ○ Global admin is platform-wide.** `admin.py:56-182,269`: an admin of tenant A can list all users, reset tenant B's admin password (account takeover), read B's audit log and live connections. *Fix:* scope to org membership or add a separate superadmin role.
-- [ ] **SRV-08 ○ Viewers can mutate and run disruptive commands.** Only `shell`/`script` are admin-gated (`commands.py:25,46`). Viewers can dispatch `reboot`/`update`, edit device metadata, toggle maintenance mode (silences alerts), change agent config, resolve alerts, delete SSH-key inventory, change compliance policies (`devices.py`, `alerts.py`, `compliance.py`). Mostly unaudited. *Fix:* `require_admin` on mutating routes; allowlist read-only types for viewers.
-- [ ] **SRV-09 ✔ Compliance evaluation always crashes.** `compliance_service.py:124` orders by `DeviceMetric.timestamp`; the column is `time` → `AttributeError`, `POST /compliance/evaluate` returns 500. Also: no scheduled evaluation task exists, rules are unvalidated, unknown rule types silently pass.
+- [x] **SRV-01 ✔ Scheduled commands with no device run on every org's devices.** `server/app/tasks/scheduler_tasks.py:44` `select(Device.id).where(~Device.is_revoked)` has no `org_id` filter; `device_id` is optional. *Fix:* filter by `scheduled.org_id`.
+- [x] **SRV-02 ○ Scheduled-command create/update accepts any device UUID** (`scheduled_commands.py:55,82-124`), no org check, no cron validation (invalid cron → 500), not-found returns 200, `command_type` unvalidated. *Fix:* validate device against `current_org_id`, validate cron + type, return 404.
+- [x] **SRV-03 ✔ Any viewer can run arbitrary shell as root/SYSTEM via software updates.** `software_updates.py:62-101` uses `get_current_user`, builds a command with `" ".join(packages)` from unvalidated names, sends it as `shell` (bypasses the admin gate on `shell`). No audit, no size cap. *Fix:* `require_admin`, validate names against `^[A-Za-z0-9._+:-]+$`, shell-quote, audit.
+- [x] **SRV-04 ✔ Alerts delivered to every org's webhooks/emails.** `notification_service.py:28` `select(NotificationRule).where(is_enabled)` — no `org_id` filter. *Fix:* `NotificationRule.org_id == device.org_id`.
+- [x] **SRV-05 ✔ Group endpoints have no org scoping (IDOR).** `groups.py:96,111,126…` use `db.get(DeviceGroup, id)`; `add_devices_to_group` accepts any device UUID. A viewer can read other orgs' device details; an admin can delete other orgs' groups.
+- [x] **SRV-06 ○ Removed org members keep access.** `dependencies.py:51-67` trusts the JWT `org_id` and never checks membership; `remove_member` leaves `users.active_org_id` set so refresh re-mints org access for 30+ days. *Fix:* verify membership per request; clear `active_org_id` on removal.
+- [x] **SRV-07 ○ Global admin is platform-wide.** `admin.py:56-182,269`: an admin of tenant A can list all users, reset tenant B's admin password (account takeover), read B's audit log and live connections. *Fix:* scope to org membership or add a separate superadmin role.
+- [x] **SRV-08 ○ Viewers can mutate and run disruptive commands.** Only `shell`/`script` are admin-gated (`commands.py:25,46`). Viewers can dispatch `reboot`/`update`, edit device metadata, toggle maintenance mode (silences alerts), change agent config, resolve alerts, delete SSH-key inventory, change compliance policies (`devices.py`, `alerts.py`, `compliance.py`). Mostly unaudited. *Fix:* `require_admin` on mutating routes; allowlist read-only types for viewers.
+- [x] **SRV-09 ✔ Compliance evaluation always crashes.** `compliance_service.py:124` orders by `DeviceMetric.timestamp`; the column is `time` → `AttributeError`, `POST /compliance/evaluate` returns 500. Also: no scheduled evaluation task exists, rules are unvalidated, unknown rule types silently pass.
 
 ### Web / auth
 - [x] **WEB-01 ✔ FIXED — MFA login is likely broken in the browser (my bug).** `frontend/src/api/client.ts:24-48` treats every 401 as an expired session — including `/auth/login`'s "MFA code required" — tries `/auth/refresh`, fails, then `window.location.href='/login'` (hard reload) which wipes the OTP step. *Fix:* skip refresh/redirect for `/auth/*` URLs; use router navigation.
@@ -73,6 +73,18 @@ The earlier score (68) was based on what I had *run*: the happy path works. The 
 
 ---
 
+### Tenancy & RBAC work status (2026-10-19) — SRV-01…09 fixed
+Fixed and covered by 45 cross-tenant tests (`server/tests/test_api/test_tenancy.py`, written first and red against the old code) **and verified on the real production stack: a 41-check script scored 12/41 on the old code and 41/41 on the new.**
+- **Org membership is verified on every request** (`get_current_org_id`); removing a member clears their `active_org_id`; enrollment tokens use the verified org (SRV-06).
+- **All lookups of org-owned objects go through `app/services/scoping.py`** (scheduled commands, notification rules, groups, devices) — foreign ids are 404 (SRV-01/02/04/05, SRV-20).
+- **Scheduler**: "all devices" means the schedule's own org; one failing device no longer aborts the run (SRV-01, part of SRV-12).
+- **User administration is per org**: list/update/password/delete only for org members, last-admin check per org, created users join the creator's org (SRV-07); also 409 on duplicate username and 12-char minimum password on create.
+- **Viewers are read-only**: `reboot`/`update`/`sync_time`/`shell`/`script` commands, device edit, maintenance, config, screenshot request, SSH-key delete, alert resolve, compliance create/update/delete/evaluate, software-update dispatch all require admin (SRV-03/08).
+- **Software-update dispatch**: strict package-name validation (`^[A-Za-z0-9][A-Za-z0-9._+:@-]{0,127}$`), ≤100 packages / ≤500 devices, audited (SRV-03).
+- **Webhooks**: http(s) only, host must resolve to public addresses (re-checked at send time, redirects off); rules can now be deleted and updates are audited (SRV-11, SRV-20).
+- **Compliance**: evaluation crashed on a wrong column name — fixed; mutations are admin-only (SRV-09).
+- **Known limitation:** `User.role` is still one global role per user (an admin of org A who edits a user who is also in org B changes that user's role everywhere). Per-org roles are the proper fix. `/audit` and `/admin/audit-log` are still not org-scoped (SRV-10) and `/admin/connections` is still platform-wide.
+
 ### Gate-work status (2026-10-16, uncommitted until pushed and CI-confirmed)
 - **WEB-01 fixed:** login endpoint 401s no longer trigger refresh/logout/hard reload (`frontend/src/api/client.ts`); 4 new tests.
 - **OPS-04/05 fixed:** `assert_production_safe` now rejects placeholder/low-entropy `SECRET_KEY`, short or placeholder admin password, default/empty DB and Redis passwords, weak `METRICS_TOKEN`, placeholder origins; unknown `ENVIRONMENT` values fail at startup. Tests cover each value shipped in `.env.example`.
@@ -86,8 +98,8 @@ The earlier score (68) was based on what I had *run*: the happy path works. The 
 
 ### Server
 - **SRV-10 ○** Audit log, CSV export and SSE stream are not org-scoped (`AuditLog` has no org column) and include full shell command text.
-- **SRV-11 ○** Webhook SSRF: `webhook_url` unvalidated; worker POSTs to it (`169.254.169.254`, `redis:6379`). Reject private/loopback/link-local, disable redirects.
-- **SRV-12 ○** Scheduler poison pill + duplicate runs: offline-device scheduled commands stay `pending` forever; after 100, every dispatch returns 429 and the whole run aborts without advancing `next_run_at`; no row lock, so overlapping ticks can double-fire.
+- **SRV-11 ○ FIXED —** Webhook SSRF: `webhook_url` unvalidated; worker POSTs to it (`169.254.169.254`, `redis:6379`). Reject private/loopback/link-local, disable redirects.
+- **SRV-12 ○ PARTLY FIXED (per-device try/except, schedule always advances; row locking + expiring stale `pending` still open) —** Scheduler poison pill + duplicate runs: offline-device scheduled commands stay `pending` forever; after 100, every dispatch returns 429 and the whole run aborts without advancing `next_run_at`; no row lock, so overlapping ticks can double-fire.
 - **SRV-13 ○** Command result/output not bound to the reporting device and can regress a finished command to `running`; `running` is never timed out.
 - **SRV-14 ○** Offline detection gaps: clean disconnects create no UptimeEvent/Alert; `check_offline_devices` inserts `Alert` directly (no webhook/email/push/SSE) and never auto-resolves offline alerts; devices in `alert` status are never examined.
 - **SRV-15 ○** Revoking or rotating a device key does not disconnect its live WebSocket.
@@ -95,7 +107,7 @@ The earlier score (68) was based on what I had *run*: the happy path works. The 
 - **SRV-17 ○** No per-username lockout; login timing reveals valid usernames; LDAP filter injection (no escaping) and LDAP errors silently fall back to local auth; dev `nginx.conf` trusts client `X-Forwarded-For`.
 - **SRV-18 ○** Enrollment token is not atomically single-use (GET → register → DELETE; use `GETDEL`); bad token JSON creates a device with no org; two duplicate registration endpoints with different rate-limit keys; fingerprint conflict leaks existing device id across tenants.
 - **SRV-19 ○** Bulk commands unaudited, unbounded `device_ids`, no rate limit.
-- **SRV-20 ○** Notification rules: update unscoped (cross-org), no DELETE endpoint, no per-channel validation, not-found returns 200.
+- **SRV-20 ○ FIXED —** Notification rules: update unscoped (cross-org), no DELETE endpoint, no per-channel validation, not-found returns 200.
 
 ### Agent
 - **AGT-04 ○** A stalled write pump can hang the agent permanently with no reconnect (`transport/client.go:141,269,286`; blocking critical send into a full channel).
